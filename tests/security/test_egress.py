@@ -87,3 +87,48 @@ def test_registered_secret_blocked_when_glued_to_punctuation(registry, template)
         check_egress(template.replace("SECRET", secret), registry)
     assert e.value.reason == "registered_secret"
     assert secret not in str(e.value)
+
+
+KOREAN_PROSE = (
+    "강남역 근처에서 혼밥하기 좋은 국밥집을 찾았어요. 국물이 진하고 가격도 괜찮습니다. "
+    "화장실은 건물 안에 있고, 점심시간에는 줄이 조금 있어요.\n"
+)
+SECRETS = ("abc-secret-xyz-12345", "naver-secret-abcdef123", "k" * 40)
+
+
+def _counting(registry, monkeypatch) -> list[int]:
+    calls = [0]
+    original = registry._fp
+
+    def spy(value: str) -> str:
+        calls[0] += 1
+        return original(value)
+
+    monkeypatch.setattr(registry, "_fp", spy)
+    return calls
+
+
+def test_long_korean_text_scans_few_windows(registry, monkeypatch):
+    for s in SECRETS:
+        registry.register(s)
+    text = (KOREAN_PROSE * (20_000 // len(KOREAN_PROSE) + 1))[:20_000]
+    naive = sum(len(text) - len(s) + 1 for s in SECRETS)
+    calls = _counting(registry, monkeypatch)
+    check_egress(text, registry)
+    # 공백 없이 이어진 긴 덩어리 안의 창만 지문을 계산한다 (순진한 방식 대비 90% 이상 감소)
+    assert calls[0] < naive // 10, (calls[0], naive)
+
+
+def test_secret_inside_long_korean_text_found(registry):
+    secret = SECRETS[0]
+    registry.register(secret)
+    text = KOREAN_PROSE * 150 + f"설정값은(key={secret}). " + KOREAN_PROSE * 150
+    with pytest.raises(EgressBlocked) as e:
+        check_egress(text, registry)
+    assert e.value.reason == "registered_secret"
+
+
+@pytest.mark.parametrize("secret", ["has space-123456", "tab\tsecret-1234", "line\nbreak-12345"])
+def test_secret_with_whitespace_rejected(registry, secret):
+    with pytest.raises(ValueError):
+        registry.register(secret)

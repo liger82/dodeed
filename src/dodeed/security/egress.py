@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
 _MIN_SECRET_LEN = 8
 _TOKEN_PREFIX_RE = re.compile(r"(?:Bearer\s+|sk-|AKIA)[A-Za-z0-9._\-]{16,}")
+_WHITESPACE_RE = re.compile(r"\s")
+_RUN_RE = re.compile(r"\S+")  # 공백 없이 이어진 최대 덩어리
 
 
 class EgressBlocked(Exception):  # noqa: N818 - 계약된 이름
@@ -32,17 +34,32 @@ class SecretRegistry:
         return hmac.new(self._key, value.encode(), hashlib.sha256).hexdigest()
 
     def register(self, secret: str) -> None:
+        # 공백이 든 비밀값은 받지 않는다: 검사가 공백으로 나뉜 덩어리 안에서만 이루어진다
+        if _WHITESPACE_RE.search(secret):
+            raise ValueError("공백이 들어 있는 비밀값은 등록할 수 없습니다")
         if len(secret) < _MIN_SECRET_LEN:
             return
         self._fingerprints.add(self._fp(secret))
         self._lengths.add(len(secret))
 
     def contains_in(self, text: str) -> bool:
-        """등록된 각 길이마다 모든 부분 문자열의 지문을 비교한다 (구두점에 붙어 있어도 잡힌다)."""
-        for length in self._lengths:
-            for i in range(len(text) - length + 1):
-                if self._fp(text[i : i + length]) in self._fingerprints:
-                    return True
+        """공백 없이 이어진 덩어리마다, 등록된 각 길이의 모든 부분 문자열 지문을 비교한다.
+
+        비밀값에는 공백이 없으므로 덩어리 밖에 걸친 창은 볼 필요가 없다. 가장 짧은 등록 길이보다
+        짧은 덩어리(한국어 문장 대부분)는 건너뛴다. 구두점에 붙어 있어도 같은 덩어리 안이라 잡힌다.
+        """
+        if not self._lengths:
+            return False
+        lengths = sorted(self._lengths)
+        shortest = lengths[0]
+        for m in _RUN_RE.finditer(text):
+            run = m.group(0)
+            if len(run) < shortest:
+                continue
+            for length in lengths:
+                for i in range(len(run) - length + 1):
+                    if self._fp(run[i : i + length]) in self._fingerprints:
+                        return True
         return False
 
 
