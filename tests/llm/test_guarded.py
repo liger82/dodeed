@@ -69,3 +69,23 @@ async def test_fake_llm_runs_out(registry):
     fake = FakeLLM([])
     with pytest.raises(AssertionError):
         await fake.complete([Message("user", "x")])
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        Message("assistant", "", tool_calls=[ToolCall("1", "send", {"body": SECRET})]),
+        Message("assistant", "", tool_calls=[ToolCall("1", f"x{SECRET}", {})]),
+        Message("tool", "{}", tool_call_id=SECRET),
+    ],
+)
+async def test_guarded_blocks_secret_in_message_tool_calls(registry, message):
+    registry.register(SECRET)
+    llm = GuardedLLM(FakeLLM([LLMResponse("ok", [])]), registry, "orchestrator")
+    with pytest.raises(EgressBlocked):
+        await llm.complete([Message("user", "안녕"), message])
+    assert llm.inner.calls == []
+
+
+def test_message_tool_calls_default_none():
+    assert Message("user", "x").tool_calls is None

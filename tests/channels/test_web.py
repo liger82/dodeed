@@ -1,4 +1,8 @@
+import httpx
+
+from dodeed.app import create_app
 from dodeed.channels.messages import OutText
+from dodeed.db import get_db
 
 
 async def test_chat_requires_login(channel_client):
@@ -45,9 +49,16 @@ async def test_location_range_validation(logged_in_client):
         assert r.status_code == 422, (lat, lng)
 
 
-async def test_503_when_gateway_missing(client, signed_up_user_id):
-    await client.post("/api/login", json={"email": "svc@example.com", "password": "pw-12345678"})
-    r = await client.post("/api/chat", json={"text": "hi", "event_id": "e"})
+async def test_503_when_gateway_missing(settings, db_session, signed_up_user_id):
+    app = create_app(settings)
+    app.state.gateway = None  # 조립이 빠진 경우
+    app.dependency_overrides[get_db] = lambda: db_session
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post(
+            "/api/login", json={"email": "svc@example.com", "password": "pw-12345678"}
+        )
+        r = await client.post("/api/chat", json={"text": "hi", "event_id": "e"})
     assert r.status_code == 503
 
 

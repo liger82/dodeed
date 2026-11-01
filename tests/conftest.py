@@ -38,7 +38,7 @@ def settings() -> Settings:
         database_url=TEST_DATABASE_URL,
         redis_url="redis://localhost:6379/1",
         web_base_url="http://test",
-        telegram_bot_token="test-telegram-token",
+        telegram_bot_token="123456789:test-telegram-token",
         telegram_webhook_secret="test-webhook-secret",
         kakao_rest_api_key="test-kakao-key",
         naver_client_id="test-naver-id",

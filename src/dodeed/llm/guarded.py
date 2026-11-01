@@ -32,6 +32,11 @@ class GuardedLLM:
     ) -> LLMResponse:
         for m in messages:
             self._check(m.content)
+            if m.tool_call_id is not None:
+                self._check(m.tool_call_id)
+            for tc in m.tool_calls or []:
+                self._check(tc.name)
+                self._check(_dump(tc.arguments))
         for t in tools or []:
             self._check(t.name)
             self._check(t.description)
