@@ -14,6 +14,9 @@ from dodeed.security.redaction import UserPII
 LINK_CODE_TTL = timedelta(minutes=10)
 
 _hasher = PasswordHasher()
+# 없는 이메일로 로그인해도 같은 비용으로 검증하기 위한 고정 해시
+# (응답 시간으로 가입 여부가 드러나지 않게)
+_DUMMY_HASH = _hasher.hash("dodeed-dummy-password-for-timing")
 
 
 class DuplicateEmailError(Exception):
@@ -43,13 +46,11 @@ async def signup(db: AsyncSession, email: str, password: str, display_name: str)
 
 async def authenticate(db: AsyncSession, email: str, password: str) -> uuid.UUID | None:
     user = await db.scalar(select(User).where(User.email == email.strip().lower()))
-    if user is None:
-        return None
     try:
-        _hasher.verify(user.password_hash, password)
+        _hasher.verify(user.password_hash if user is not None else _DUMMY_HASH, password)
     except VerifyMismatchError:
         return None
-    return user.id
+    return user.id if user is not None else None
 
 
 async def issue_link_code(db: AsyncSession, user_id: uuid.UUID, now: datetime) -> str:

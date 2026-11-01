@@ -68,3 +68,39 @@ async def test_issue_regenerates_on_collision(db_session, user_id, now, monkeypa
 async def test_code_is_zero_padded(db_session, user_id, now, monkeypatch):
     monkeypatch.setattr("dodeed.accounts.service.secrets.randbelow", lambda n: 42)
     assert await issue_link_code(db_session, user_id, now) == "000042"
+
+
+class _VerifySpy:
+    def __init__(self, inner):
+        self._inner = inner
+        self.verified: list[str] = []
+
+    def hash(self, password):
+        return self._inner.hash(password)
+
+    def verify(self, hashed, password):
+        self.verified.append(hashed)
+        return self._inner.verify(hashed, password)
+
+
+async def test_authenticate_unknown_email_still_verifies_once(db_session, monkeypatch):
+    from dodeed.accounts import service
+
+    spy = _VerifySpy(service._hasher)
+    monkeypatch.setattr(service, "_hasher", spy)
+    assert await service.authenticate(db_session, "nobody@example.com", "pw-12345678") is None
+    # 이메일이 없어도 같은 비용의 검증을 한 번 해서 응답 시간으로 가입 여부가 드러나지 않게 한다
+    assert len(spy.verified) == 1
+    assert spy.verified[0].startswith("$argon2")
+
+
+async def test_authenticate_known_email_verifies_once(db_session, signed_up_user_id, monkeypatch):
+    from dodeed.accounts import service
+
+    spy = _VerifySpy(service._hasher)
+    monkeypatch.setattr(service, "_hasher", spy)
+    assert await service.authenticate(db_session, "svc@example.com", "pw-12345678") == (
+        signed_up_user_id
+    )
+    assert await service.authenticate(db_session, "svc@example.com", "wrong-password") is None
+    assert len(spy.verified) == 2
