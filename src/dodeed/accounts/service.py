@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dodeed.accounts.models import ChannelLink, LinkCode, User
+from dodeed.security.redaction import UserPII
 
 LINK_CODE_TTL = timedelta(minutes=10)
 
@@ -101,3 +102,10 @@ async def unlink(db: AsyncSession, user_id: uuid.UUID, channel: str) -> None:
         delete(ChannelLink).where(ChannelLink.user_id == user_id, ChannelLink.channel == channel)
     )
     await db.commit()
+
+
+async def get_user_pii(db: AsyncSession, user_id: uuid.UUID) -> UserPII:
+    user = await db.get(User, user_id)
+    if user is None:
+        return UserPII(name=None, phone=None, email=None, address=None)
+    return UserPII(name=user.display_name, phone=user.phone, email=user.email, address=None)
