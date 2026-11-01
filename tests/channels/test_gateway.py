@@ -138,3 +138,26 @@ async def test_successful_link_clears_counter(
     code = await issue_link_code(db_session, signed_up_user_id, now)
     await gateway.handle(db_session, text(f"/link {code}", eid="ok"), now=now)
     assert await redis_client.get("dodeed:linkfail:telegram:tg-1") is None
+
+
+async def test_failed_processing_releases_dedupe_key(
+    gateway, orch, db_session, signed_up_user_id, now
+):
+    code = await issue_link_code(db_session, signed_up_user_id, now)
+    await gateway.handle(db_session, text(f"/link {code}", eid="a"), now=now)
+    original = orch.handle
+    state = {"first": True}
+
+    async def flaky(db, user_id, conversation, text_, pii):
+        if state["first"]:
+            state["first"] = False
+            orch.calls.append("boom")
+            raise RuntimeError("boom")
+        return await original(db, user_id, conversation, text_, pii)
+
+    orch.handle = flaky
+    with pytest.raises(RuntimeError):
+        await gateway.handle(db_session, text("hi", eid="r"), now=now)
+    out = await gateway.handle(db_session, text("hi", eid="r"), now=now)
+    assert out == [OutText(text="echo:hi")]
+    assert len(orch.calls) == 2

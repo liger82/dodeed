@@ -65,12 +65,24 @@ class Gateway:
         now: datetime | None = None,
     ) -> list[Outbound]:
         now = now or datetime.now(UTC)
-        first = await self._redis.set(
-            f"dodeed:event:{msg.channel}:{msg.event_id}", 1, nx=True, ex=EVENT_TTL
-        )
+        event_key = f"dodeed:event:{msg.channel}:{msg.event_id}"
+        first = await self._redis.set(event_key, 1, nx=True, ex=EVENT_TTL)
         if not first:
             return []
+        try:
+            return await self._process(db, msg, resolved_user_id, now)
+        except BaseException:
+            # 처리에 실패하면 채널의 재전송이 중복으로 버려지지 않도록 표시를 지운다
+            await self._redis.delete(event_key)
+            raise
 
+    async def _process(
+        self,
+        db: AsyncSession,
+        msg: Inbound,
+        resolved_user_id: uuid.UUID | None,
+        now: datetime,
+    ) -> list[Outbound]:
         user_id = resolved_user_id
         if user_id is None:
             user_id = await resolve_user(db, msg.channel, msg.external_id)
