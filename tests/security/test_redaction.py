@@ -45,3 +45,32 @@ def test_known_phone_and_unknown_phone_distinct():
     r = redact(text, pii)
     assert r.text == "[사용자_전화번호] / [사용자_전화번호_2]"
     assert restore(r.text, r.mapping) == text
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "phone",
+    ["010 1234 5678", "010.1234.5678", "+82 10-1234-5678", "+82-10-1234-5678", "+821012345678"],
+)
+def test_phone_formats_redacted(phone):
+    r = redact(f"전화 {phone} 입니다", EMPTY)
+    assert r.text == "전화 [사용자_전화번호] 입니다"
+    assert restore(r.text, r.mapping) == f"전화 {phone} 입니다"
+
+
+@pytest.mark.parametrize(
+    "variant", ["010 1234 5678", "010.1234.5678", "+82 10-1234-5678", "01012345678"]
+)
+def test_known_phone_matches_other_formats(variant):
+    pii = UserPII(None, "010-1234-5678", None, None)
+    r = redact(f"번호 {variant}", pii)
+    assert r.text == "번호 [사용자_전화번호]"
+    assert r.mapping == {"[사용자_전화번호]": "010-1234-5678"}
+
+
+def test_known_phone_in_other_format_and_unknown_phone_distinct():
+    pii = UserPII(None, "+82 10-1234-5678", None, None)
+    r = redact("010-1234-5678 / 010-9999-8888", pii)
+    assert r.text == "[사용자_전화번호] / [사용자_전화번호_2]"

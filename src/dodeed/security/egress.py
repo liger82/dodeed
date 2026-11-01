@@ -10,8 +10,7 @@ from dodeed.security.redaction import CARD_CANDIDATE_RE, is_card_number
 if TYPE_CHECKING:
     from dodeed.config import Settings
 
-_MIN_TOKEN_LEN = 8
-_SPLIT_RE = re.compile(r"[\s\"',;:()\[\]{}<>]+")
+_MIN_SECRET_LEN = 8
 _TOKEN_PREFIX_RE = re.compile(r"(?:Bearer\s+|sk-|AKIA)[A-Za-z0-9._\-]{16,}")
 
 
@@ -27,17 +26,23 @@ class SecretRegistry:
     def __init__(self, hmac_key: bytes) -> None:
         self._key = hmac_key
         self._fingerprints: set[str] = set()
+        self._lengths: set[int] = set()  # 길이만 보관한다 (원문은 보관하지 않음)
 
     def _fp(self, value: str) -> str:
         return hmac.new(self._key, value.encode(), hashlib.sha256).hexdigest()
 
     def register(self, secret: str) -> None:
+        if len(secret) < _MIN_SECRET_LEN:
+            return
         self._fingerprints.add(self._fp(secret))
+        self._lengths.add(len(secret))
 
     def contains_in(self, text: str) -> bool:
-        for token in _SPLIT_RE.split(text):
-            if len(token) >= _MIN_TOKEN_LEN and self._fp(token) in self._fingerprints:
-                return True
+        """등록된 각 길이마다 모든 부분 문자열의 지문을 비교한다 (구두점에 붙어 있어도 잡힌다)."""
+        for length in self._lengths:
+            for i in range(len(text) - length + 1):
+                if self._fp(text[i : i + length]) in self._fingerprints:
+                    return True
         return False
 
 

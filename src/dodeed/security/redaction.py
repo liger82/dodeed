@@ -9,7 +9,8 @@ PH_ADDRESS = "[사용자_주소]"
 PH_EMAIL = "[사용자_이메일]"
 PH_CARD = "[카드번호]"
 
-_PHONE_RE = re.compile(r"(?<!\d)01[016789]-?\d{3,4}-?\d{4}(?!\d)")
+# 공백, 점, 하이픈 구분자와 +82 국가번호(앞자리 0 생략) 형태를 허용한다.
+_PHONE_RE = re.compile(r"(?<!\d)(?:\+82[ .-]?|0)1[016789][ .-]?\d{3,4}[ .-]?\d{4}(?!\d)")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 CARD_CANDIDATE_RE = re.compile(r"(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)")
 
@@ -26,6 +27,14 @@ class UserPII:
 class Redacted:
     text: str
     mapping: dict[str, str] = field(default_factory=dict)  # 자리표시자 -> 원래 값
+
+
+def _phone_digits(value: str) -> str:
+    """구분자를 없애고 +82 형태를 국내 형태(0으로 시작)로 맞춘다."""
+    digits = re.sub(r"\D", "", value)
+    if value.strip().startswith("+82") and digits.startswith("82"):
+        digits = "0" + digits[2:]
+    return digits
 
 
 def luhn_valid(digits: str) -> bool:
@@ -73,19 +82,29 @@ def redact(text: str, pii: UserPII) -> Redacted:
     # 1) 알고 있는 값은 그대로 일치하면 바꾼다.
     for value, base in (
         (pii.name, PH_NAME),
-        (pii.phone, PH_PHONE),
         (pii.email, PH_EMAIL),
         (pii.address, PH_ADDRESS),
     ):
         if value:
             text = text.replace(value, ph.get(base, value))
 
+    known_phone = _phone_digits(pii.phone) if pii.phone else None
+    if pii.phone:
+        text = text.replace(pii.phone, ph.get(PH_PHONE, pii.phone))
+
     # 2) 패턴 (카드 -> 전화 -> 이메일)
     def card(m: re.Match[str]) -> str:
         return ph.get(PH_CARD, m.group(0)) if is_card_number(m.group(0)) else m.group(0)
 
     text = CARD_CANDIDATE_RE.sub(card, text)
-    text = _PHONE_RE.sub(lambda m: ph.get(PH_PHONE, m.group(0)), text)
+
+    def phone(m: re.Match[str]) -> str:
+        raw = m.group(0)
+        if known_phone and pii.phone and _phone_digits(raw) == known_phone:
+            return ph.get(PH_PHONE, pii.phone)  # 다른 표기의 본인 번호
+        return ph.get(PH_PHONE, raw)
+
+    text = _PHONE_RE.sub(phone, text)
     text = _EMAIL_RE.sub(lambda m: ph.get(PH_EMAIL, m.group(0)), text)
     return Redacted(text=text, mapping=ph.mapping)
 

@@ -68,3 +68,22 @@ def test_registry_from_settings_registers_all_secret_fields(settings: Settings):
     ):
         assert reg.contains_in(f"x {value} y"), value
     assert "test-telegram-token" not in repr(vars(reg))
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "key=SECRET",
+        "https://x.test/cb?token=SECRET&a=1",
+        "ends with SECRET.",
+        "`SECRET`",
+        "https://api.test/v1/SECRET/items",
+    ],
+)
+def test_registered_secret_blocked_when_glued_to_punctuation(registry, template):
+    secret = "abc-secret-xyz-12345"
+    registry.register(secret)
+    with pytest.raises(EgressBlocked) as e:
+        check_egress(template.replace("SECRET", secret), registry)
+    assert e.value.reason == "registered_secret"
+    assert secret not in str(e.value)
