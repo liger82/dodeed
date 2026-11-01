@@ -11,7 +11,7 @@ PH_CARD = "[카드번호]"
 
 _PHONE_RE = re.compile(r"(?<!\d)01[016789]-?\d{3,4}-?\d{4}(?!\d)")
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
-_CARD_RE = re.compile(r"(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)")
+CARD_CANDIDATE_RE = re.compile(r"(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)")
 
 
 @dataclass
@@ -84,7 +84,7 @@ def redact(text: str, pii: UserPII) -> Redacted:
     def card(m: re.Match[str]) -> str:
         return ph.get(PH_CARD, m.group(0)) if is_card_number(m.group(0)) else m.group(0)
 
-    text = _CARD_RE.sub(card, text)
+    text = CARD_CANDIDATE_RE.sub(card, text)
     text = _PHONE_RE.sub(lambda m: ph.get(PH_PHONE, m.group(0)), text)
     text = _EMAIL_RE.sub(lambda m: ph.get(PH_EMAIL, m.group(0)), text)
     return Redacted(text=text, mapping=ph.mapping)
