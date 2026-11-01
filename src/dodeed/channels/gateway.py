@@ -113,8 +113,12 @@ class Gateway:
             return OutText(text=MSG_LINK_LOCKED)
         user_id = await redeem_link_code(db, code, msg.channel, msg.external_id, now)
         if user_id is None:
-            if await self._redis.incr(key) == 1:
-                await self._redis.expire(key, LINK_FAIL_TTL)
+            # INCR과 EXPIRE를 한 트랜잭션으로 보내 TTL 없는 카운터가 남지 않게 한다.
+            # NX: 이미 TTL이 있으면 늘리지 않는다 (잠금 시간이 계속 밀리지 않도록).
+            async with self._redis.pipeline(transaction=True) as pipe:
+                pipe.incr(key)
+                pipe.expire(key, LINK_FAIL_TTL, nx=True)
+                await pipe.execute()
             return OutText(text=MSG_LINK_FAILED)
         await self._redis.delete(key)
         return OutText(text=MSG_LINKED)

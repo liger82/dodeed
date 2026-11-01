@@ -153,3 +153,17 @@ async def test_orchestrator_llm_error_does_not_reach_gateway(
     await gw.handle(db_session, text(f"/link {code}"), now=now)
     out = await gw.handle(db_session, text("맛집", eid="e2"), now=now)
     assert out == [OutText(text=MSG_RETRY_LATER)]
+
+
+async def test_link_fail_counter_always_has_ttl(gateway, redis_client, db_session, now):
+    from dodeed.channels.gateway import LINK_FAIL_TTL
+
+    key = "dodeed:linkfail:telegram:tg-1"
+    await gateway.handle(db_session, text("/link 000000"), now=now)
+    assert 0 < await redis_client.ttl(key) <= LINK_FAIL_TTL
+    # 이전 처리가 INCR과 EXPIRE 사이에서 죽어 TTL 없이 남은 카운터도 다음 실패 때 TTL을 얻는다
+    await redis_client.set(key, 2)
+    assert await redis_client.ttl(key) == -1
+    await gateway.handle(db_session, text("/link 000000", eid="e2"), now=now)
+    assert int(await redis_client.get(key)) == 3
+    assert 0 < await redis_client.ttl(key) <= LINK_FAIL_TTL
