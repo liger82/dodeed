@@ -89,6 +89,7 @@ def local_server():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv.server_address[1]
     srv.shutdown()
+    srv.server_close()
 
 
 @pytest.fixture
@@ -136,6 +137,7 @@ def other_server():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield srv.server_address[1]
     srv.shutdown()
+    srv.server_close()
 
 
 @pytest.fixture

@@ -75,8 +75,10 @@ async def client(settings, db_session):
     app = create_app(settings)
     app.dependency_overrides[get_db] = lambda: db_session
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+    # lifespan을 돌려 앱이 만든 자원(Redis 연결 등)을 테스트 끝에 닫는다
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
 
 
 @pytest.fixture
