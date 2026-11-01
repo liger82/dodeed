@@ -22,6 +22,7 @@ def make(now, **kw) -> Candidate:
             location="inside",
             source_link="https://blog.naver.com/a/1",
             source_date=date(2026, 9, 12),
+            source_kind="blog",
         ),
         taste=TasteSummary(
             status="ok", summary="국물이 진해요", evidence_count=7, source_links=["x"]
@@ -55,11 +56,12 @@ def test_card_lines_format(now):
             lines=[
                 "국밥 · 도보 4분",
                 "가격대: 확인 안 됨",
-                "영업 중 · 22:00 마감",
+                "영업 중 · 22:00 마감 (21:00 확인)",
                 "대기·예약: 준비 중",
                 "화장실: 매장 안 · 남녀 분리 (2026-09 블로그)",
                 "맛(내돈내산 7건): 국물이 진해요",
                 "추천 이유: 혼밥: 1인석, 1만 5천 원 이하",
+                "정보 조회: 21:00",
             ],
             buttons=[
                 Button(label="지도 보기", payload="http://place.map.kakao.com/1001"),
@@ -94,6 +96,7 @@ def test_card_toilet_conflict_and_web_source(now):
             location="building_shared",
             source_link="https://example.com/post",
             source_date=date(2026, 3, 2),
+            source_kind="web",
             conflicting=True,
         ),
     )
@@ -119,8 +122,16 @@ def test_card_open_without_closing_and_closed(now):
     c1 = make(now, open_status=OpenStatus(open_now=True, closes_at=None, checked_at=now))
     c2 = make(now, open_status=OpenStatus(open_now=False, closes_at=None, checked_at=now))
     cards = to_cards(cl_of(c1, c2), now)
-    assert cards[0].lines[2] == "영업 중"
-    assert cards[1].lines[2] == "영업 종료"
+    assert cards[0].lines[2] == "영업 중 (21:00 확인)"
+    assert cards[1].lines[2] == "영업 종료 (21:00 확인)"
+
+
+def test_checked_times_in_kst(now):
+    checked = now - timedelta(minutes=7)  # 11:53 UTC = 20:53 KST
+    c = make(now, open_status=OpenStatus(open_now=True, closes_at="22:00", checked_at=checked))
+    lines = to_cards(cl_of(c), now)[0].lines
+    assert lines[2] == "영업 중 · 22:00 마감 (20:53 확인)"
+    assert lines[-1] == "정보 조회: 21:00"
 
 
 def test_card_price_note(now):

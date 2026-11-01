@@ -1,6 +1,12 @@
+import asyncio
+import time
+
 import pytest
 
+from dodeed.restaurant import candidates as candidates_mod
 from dodeed.restaurant.candidates import (
+    BLOG_BODY_TOP,
+    PAGE_CONCURRENCY,
     CandidateList,
     NeedLocation,
     SearchRequest,
@@ -118,6 +124,7 @@ async def test_web_search_feeds_toilet(scenario, kst_now):
     cl = await find_candidates(scenario.deps, SearchRequest(area_query="강남역"), None, kst_now)
     t = cl.candidates[0].toilet
     assert t.location == "inside" and t.source_link == "https://example.com/q"
+    assert t.source_kind == "web"
 
 
 async def test_partial_failure_marks_unknown(scenario, kst_now):
@@ -140,13 +147,14 @@ async def test_taste_from_own_money_blogs(scenario, kst_now):
     assert taste.summary == "국물이 진하고 깔끔해요"
 
 
-async def test_blog_query_uses_district_and_top10_bodies(scenario, kst_now):
+async def test_blog_query_uses_district_and_top5_bodies(scenario, kst_now):
     posts = [blog(f"글{i}", "설명", f"202610{i + 1:02d}", body=f"본문{i}") for i in range(12)]
     scenario.add(PlaceFx("1", "가집", 1, road_address="서울 강남구 역삼동 테헤란로 1", blog=posts))
     await find_candidates(scenario.deps, SearchRequest(area_query="강남역"), None, kst_now)
     assert scenario.blog_queries == ["가집 강남구 역삼동"]
     body_reads = [u for u in scenario.page_reader.calls if "blog.naver.com" in u]
-    assert len(body_reads) == 10
+    assert BLOG_BODY_TOP == 5
+    assert len(body_reads) == 5
 
 
 async def test_blog_query_falls_back_to_first_two_tokens(scenario, kst_now):
@@ -155,13 +163,27 @@ async def test_blog_query_falls_back_to_first_two_tokens(scenario, kst_now):
     assert scenario.blog_queries == ["가집 경기 성남시"]
 
 
-async def test_page_reads_limited_to_3_concurrent(scenario, kst_now):
+async def test_page_reads_limited_to_6_concurrent(scenario, kst_now):
     for i in range(8):
         posts = [blog(f"글{j}", "설명", body=f"본문{j}") for j in range(4)]
         scenario.add(PlaceFx(str(i), f"집{i}", i + 1, blog=posts))
     await find_candidates(scenario.deps, SearchRequest(area_query="강남역"), None, kst_now)
     assert len(scenario.page_reader.calls) == 8 * 5
-    assert scenario.page_reader.max_active <= 3
+    assert PAGE_CONCURRENCY == 6
+    assert 3 < scenario.page_reader.max_active <= PAGE_CONCURRENCY
+
+
+async def test_page_slots_shared_across_searches(scenario, kst_now):
+    for i in range(8):
+        posts = [blog(f"글{j}", "설명", body=f"본문{j}") for j in range(4)]
+        scenario.add(PlaceFx(str(i), f"집{i}", i + 1, blog=posts))
+    req = SearchRequest(area_query="강남역")
+    await asyncio.gather(
+        find_candidates(scenario.deps, req, None, kst_now),
+        find_candidates(scenario.deps, req, None, kst_now),
+    )
+    assert len(scenario.page_reader.calls) == 2 * 8 * 5
+    assert scenario.page_reader.max_active <= PAGE_CONCURRENCY
 
 
 async def test_hours_instruction_has_kst_now(scenario, kst_now):
@@ -252,3 +274,44 @@ def test_reader_schemas_use_simple_types():
     for schema in (HoursExtract, ToiletExtract, TasteExtract):
         js = str(schema.model_json_schema())
         assert "date" not in js and "enum" not in js and "const" not in js
+
+
+SPONSORED_BODY = "본 포스팅은 소정의 원고료를 받아 작성되었습니다. 국물이 진해요."
+
+
+async def test_snippet_own_money_with_sponsored_body_never_reaches_taste(scenario, kst_now):
+    """제목은 내돈내산인데 대가성 표시가 본문에만 있는 글은 본문을 못 읽었으면 맛 평가에 안 쓴다."""
+    # 가: 본문 읽기가 모두 실패 (페이지 리더가 None)
+    failed = [blog(f"내돈내산 후기 {i}", "맛있어요", f"202610{i + 1:02d}") for i in range(4)]
+    # 나: 상위 5건은 본문을 읽어 대가성으로 분류되고, 6번째부터는 본문을 읽지 않는다
+    unread = [
+        blog(f"내돈내산 후기 {i}", "맛있어요", f"202610{i + 1:02d}", body=SPONSORED_BODY)
+        for i in range(9)
+    ]
+    scenario.add(PlaceFx("1", "가집", 1, blog=failed), PlaceFx("2", "나집", 2, blog=unread))
+    cl = await find_candidates(scenario.deps, SearchRequest(area_query="강남역"), None, kst_now)
+    assert [c.taste.status for c in cl.candidates] == ["insufficient", "insufficient"]
+    assert [c for c in scenario.reader.calls if c[0] is TasteExtract] == []
+    assert len([u for u in scenario.page_reader.calls if "/u2/" in u]) == 5
+
+
+async def test_body_read_own_money_reaches_taste_only_with_bodies(scenario, kst_now):
+    posts = own_money_blogs(3) + [blog("내돈내산 SNIPPET-ONLY", "본문 없음", "20261030")]
+    scenario.add(PlaceFx("1", "가집", 1, blog=posts))
+    cl = await find_candidates(scenario.deps, SearchRequest(area_query="강남역"), None, kst_now)
+    assert cl.candidates[0].taste.evidence_count == 3
+    taste_calls = [c for c in scenario.reader.calls if c[0] is TasteExtract]
+    assert len(taste_calls) == 1 and "SNIPPET-ONLY" not in taste_calls[0][1]
+
+
+async def test_enrich_deadline_returns_partial_results(scenario, kst_now, monkeypatch):
+    monkeypatch.setattr(candidates_mod, "ENRICH_DEADLINE_S", 0.3)
+    scenario.page_reader.slow_marker = "blog.naver.com"  # 블로그 본문 읽기가 30초 걸린다
+    scenario.add(PlaceFx("1", "가집", 1, blog=own_money_blogs(4)))
+    started = time.monotonic()
+    cl = await find_candidates(scenario.deps, SearchRequest(area_query="강남역"), None, kst_now)
+    assert time.monotonic() - started < 5
+    assert [c.name for c in cl.candidates] == ["가집"]
+    c = cl.candidates[0]
+    assert c.open_status.open_now is True  # 끝난 항목은 남는다
+    assert c.taste.status == "insufficient" and c.toilet.location == "unknown"

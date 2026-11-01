@@ -39,6 +39,7 @@ async def test_latest_source_wins_and_conflict_flagged():
         location="inside",
         source_link="https://blog.naver.com/a/2",
         source_date=date(2026, 9, 12),
+        source_kind="blog",
         conflicting=True,
     )
 
@@ -92,9 +93,11 @@ async def test_missing_field_filled_from_older_doc():
     )
     docs = [
         ReviewDoc("OLD 화장실 남녀 분리", "https://blog.naver.com/a/1", date(2025, 1, 1)),
-        ReviewDoc("NEW 화장실 매장 안", "https://example.com/w", date(2026, 1, 1)),
+        ReviewDoc(
+            "NEW 화장실 매장 안", "https://example.com/w", date(2026, 1, 1), source_kind="web"
+        ),
     ]
     info = await toilet_info(reader, docs)
     assert info.gender_separated is True and info.location == "inside"
     assert info.conflicting is False
-    assert info.source_link == "https://example.com/w"
+    assert info.source_link == "https://example.com/w" and info.source_kind == "web"

@@ -65,7 +65,12 @@ def blog(title: str, description: str = "", postdate: str = "20261001", body: st
 
 def own_money_blogs(n: int = 3) -> list[dict]:
     return [
-        blog(f"내돈내산 후기 {i}", "국물이 진하고 맛있어요", f"202610{10 + i:02d}")
+        blog(
+            f"내돈내산 후기 {i}",
+            "국물이 진하고 맛있어요",
+            f"202610{10 + i:02d}",
+            body=f"직접 결제하고 먹은 후기 {i}. 국물이 진해요.",
+        )
         for i in range(n)
     ]
 
@@ -76,6 +81,7 @@ class FakePageReader:
         self.calls: list[str] = []
         self.active = 0
         self.max_active = 0
+        self.slow_marker: str | None = None  # URL에 이 글자가 있으면 오래 걸린다
 
     async def text(self, url: str, timeout_s: float = 15) -> str | None:
         self.calls.append(url)
@@ -83,6 +89,8 @@ class FakePageReader:
         self.max_active = max(self.max_active, self.active)
         try:
             await asyncio.sleep(0.005)
+            if self.slow_marker and self.slow_marker in url:
+                await asyncio.sleep(30)
             if "example.com" in url:
                 raise DomainNotAllowed("example.com")
             for p in self.s.places:

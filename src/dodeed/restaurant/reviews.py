@@ -26,6 +26,8 @@ SPONSORED_PHRASES = ("소정의 원고료", "원고료를 받", "제공받아", 
 OWN_MONEY_PHRASES = ("내돈내산", "내 돈 내 산", "직접 결제")
 MIN_TASTE_REVIEWS = 3
 MAX_TASTE_REVIEWS = 10
+MAX_SUMMARY_CHARS = 80
+SourceKind = Literal["blog", "web"]
 
 
 @dataclass
@@ -34,6 +36,10 @@ class ReviewDoc:
     link: str
     posted: date | None
     is_receipt_verified: bool = False
+    source_kind: SourceKind = "blog"
+    # 본문을 실제로 읽었는가. 제목·요약만 있는 문서는 대가성 표시가 본문에 숨어 있을 수 있어
+    # 맛 평가에 쓰지 않는다 (화장실 같은 사실 정보에는 쓸 수 있다).
+    body_read: bool = False
 
 
 class TasteSummary(BaseModel):
@@ -70,7 +76,11 @@ def newest_first(docs: list[ReviewDoc]) -> list[ReviewDoc]:
 
 
 async def taste_summary(reader: Extractor, reviews: list[ReviewDoc]) -> TasteSummary:
-    own = [r for r in reviews if classify(r.text, r.is_receipt_verified) == ReviewKind.OWN_MONEY]
+    own = [
+        r
+        for r in reviews
+        if r.body_read and classify(r.text, r.is_receipt_verified) == ReviewKind.OWN_MONEY
+    ]
     if len(own) < MIN_TASTE_REVIEWS:
         return TasteSummary(
             status="insufficient", summary=None, evidence_count=len(own), source_links=[]
@@ -78,13 +88,14 @@ async def taste_summary(reader: Extractor, reviews: list[ReviewDoc]) -> TasteSum
     used = newest_first(own)[:MAX_TASTE_REVIEWS]
     raw = "\n\n".join(f"[리뷰 {i + 1}]\n{r.text}" for i, r in enumerate(used))
     result = await reader.extract(raw, TasteExtract, TASTE_INSTRUCTION)
-    if result is None or not result.summary.strip():
+    summary = result.summary.strip()[:MAX_SUMMARY_CHARS] if result is not None else ""
+    if not summary:
         return TasteSummary(
             status="insufficient", summary=None, evidence_count=len(used), source_links=[]
         )
     return TasteSummary(
         status="ok",
-        summary=result.summary.strip(),
+        summary=summary,
         evidence_count=len(used),
         source_links=[r.link for r in used],
     )

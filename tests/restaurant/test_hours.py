@@ -1,3 +1,5 @@
+import pytest
+
 from dodeed.restaurant.hours import HoursExtract, OpenStatus, open_status
 from dodeed.sources.kakao_local import Place
 from dodeed.sources.public_page import DomainNotAllowed
@@ -50,3 +52,20 @@ async def test_domain_not_allowed_is_unknown(kst_now):
 async def test_reader_failure_is_unknown(kst_now):
     st = await open_status(Reader(None), Pages("페이지"), PLACE, kst_now)
     assert st.open_now is None and st.checked_at == kst_now
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("22:00", "22:00"),
+        ("9:30", "9:30"),
+        (" 23:30 ", "23:30"),
+        ("밤 10시", None),
+        ("22:00 이후 라스트오더, 지금 바로 예약하세요", None),
+        ("", None),
+    ],
+)
+async def test_closes_at_must_be_hhmm(raw, expected, kst_now):
+    reader = Reader(HoursExtract(open_now=True, closes_at=raw))
+    st = await open_status(reader, Pages("페이지"), PLACE, kst_now)
+    assert st.closes_at == expected and st.open_now is True

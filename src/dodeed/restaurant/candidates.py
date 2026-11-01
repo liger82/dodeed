@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from dodeed.reader.isolated import IsolatedReader
 from dodeed.restaurant.hours import OpenStatus, PageText, open_status
-from dodeed.restaurant.reviews import ReviewDoc, TasteSummary, taste_summary
+from dodeed.restaurant.reviews import ReviewDoc, SourceKind, TasteSummary, taste_summary
 from dodeed.restaurant.situations import SITUATIONS, Situation, SituationProfile, format_won
 from dodeed.restaurant.toilet import UNKNOWN as TOILET_UNKNOWN
 from dodeed.restaurant.toilet import ToiletInfo, toilet_info
@@ -32,8 +32,9 @@ MIN_SEARCH_RESULTS = 3
 ENRICH_TOP = 8
 MAX_CANDIDATES = 5
 BLOG_DISPLAY = 20
-BLOG_BODY_TOP = 10
-PAGE_CONCURRENCY = 3
+BLOG_BODY_TOP = 5
+PAGE_CONCURRENCY = 6  # RestaurantDeps 하나(앱 전체)가 공유하는 동시 페이지 읽기 수
+ENRICH_DEADLINE_S = 30.0  # 보강 단계 전체 마감. 넘기면 끝나지 않은 항목은 확인 안 됨
 
 NOTICE_KAKAO_DOWN = "장소 검색 서비스에 일시적으로 연결할 수 없어요. 잠시 후 다시 시도해 주세요."
 NOTICE_NO_RESULTS = (
@@ -95,10 +96,13 @@ class RestaurantDeps:
     localdata: LocalData
     reader: IsolatedReader
     page_reader: PublicPageReader
+    page_slots: asyncio.Semaphore = field(
+        default_factory=lambda: asyncio.Semaphore(PAGE_CONCURRENCY)
+    )
 
 
 class _LimitedPages:
-    """검색 한 번 안에서 공개 페이지 동시 읽기 수를 제한한다."""
+    """공개 페이지 동시 읽기 수를 제한한다 (RestaurantDeps.page_slots 공유)."""
 
     def __init__(self, inner: PageText, sem: asyncio.Semaphore) -> None:
         self._inner = inner
@@ -139,9 +143,11 @@ def _short_category(category: str) -> str:
     return category.split(">")[-1].strip() if category else ""
 
 
-def _doc_from(item: SearchItem, body: str | None = None) -> ReviewDoc:
+def _doc_from(item: SearchItem, kind: SourceKind, body: str | None = None) -> ReviewDoc:
     text = "\n".join(t for t in (item.title, item.description, body) if t)
-    return ReviewDoc(text=text, link=item.link, posted=item.postdate)
+    return ReviewDoc(
+        text=text, link=item.link, posted=item.postdate, source_kind=kind, body_read=bool(body)
+    )
 
 
 async def _body(pages: PageText, url: str) -> str | None:
@@ -156,51 +162,60 @@ async def _blog_docs(deps: RestaurantDeps, pages: PageText, place: Place) -> lis
     items = await deps.naver.search_blog(query, display=BLOG_DISPLAY)
     bodies = await _gather_safe(*(_body(pages, i.link) for i in items[:BLOG_BODY_TOP]))
     bodies += [None] * (len(items) - len(bodies))
-    return [_doc_from(i, b) for i, b in zip(items, bodies, strict=True)]
+    return [_doc_from(i, "blog", b) for i, b in zip(items, bodies, strict=True)]
 
 
 async def _web_docs(deps: RestaurantDeps, place: Place) -> list[ReviewDoc]:
-    return [_doc_from(i) for i in await deps.naver.search_web(f"{place.name} 화장실")]
+    return [_doc_from(i, "web") for i in await deps.naver.search_web(f"{place.name} 화장실")]
 
 
 @dataclass
 class _Enriched:
+    """보강 결과. 각 단계가 끝나는 대로 채우므로 마감 시각에 걸려도 끝난 값은 남는다."""
+
     place: Place
-    status: str
     hours: OpenStatus
-    blog_docs: list[ReviewDoc]
-    toilet: ToiletInfo
-    taste: TasteSummary
+    status: str = "unknown"
+    blog_docs: list[ReviewDoc] = field(default_factory=list)
+    web_docs: list[ReviewDoc] = field(default_factory=list)
+    toilet: ToiletInfo = field(default_factory=lambda: TOILET_UNKNOWN.model_copy())
+    taste: TasteSummary = field(
+        default_factory=lambda: TasteSummary(
+            status="insufficient", summary=None, evidence_count=0, source_links=[]
+        )
+    )
 
     @property
     def excluded(self) -> bool:
         return self.status == "closed" or self.hours.open_now is False
 
 
-async def _enrich(deps: RestaurantDeps, pages: PageText, place: Place, now: datetime) -> _Enriched:
-    status, hours, blog_docs, web_docs = await _gather_safe(
-        deps.localdata.business_status(place.name, place.road_address),
-        open_status(deps.reader, pages, place, now),
-        _blog_docs(deps, pages, place),
-        _web_docs(deps, place),
-    )
-    e = _Enriched(
-        place=place,
-        status=status or "unknown",
-        hours=hours or OpenStatus(open_now=None, closes_at=None, checked_at=now),
-        blog_docs=blog_docs or [],
-        toilet=TOILET_UNKNOWN,
-        taste=TasteSummary(status="insufficient", summary=None, evidence_count=0, source_links=[]),
-    )
+async def _enrich(deps: RestaurantDeps, pages: PageText, e: _Enriched, now: datetime) -> None:
+    place = e.place
+
+    async def status() -> None:
+        e.status = await deps.localdata.business_status(place.name, place.road_address)
+
+    async def hours() -> None:
+        e.hours = await open_status(deps.reader, pages, place, now)
+
+    async def blogs() -> None:
+        e.blog_docs = await _blog_docs(deps, pages, place)
+
+    async def web() -> None:
+        e.web_docs = await _web_docs(deps, place)
+
+    await _gather_safe(status(), hours(), blogs(), web())
     if e.excluded:  # 뺄 곳은 리더를 더 부르지 않는다
-        return e
-    toilet, taste = await _gather_safe(
-        toilet_info(deps.reader, e.blog_docs + (web_docs or [])),
-        taste_summary(deps.reader, e.blog_docs),
-    )
-    e.toilet = toilet or TOILET_UNKNOWN
-    e.taste = taste or e.taste
-    return e
+        return
+
+    async def toilet() -> None:
+        e.toilet = await toilet_info(deps.reader, e.blog_docs + e.web_docs)
+
+    async def taste() -> None:
+        e.taste = await taste_summary(deps.reader, e.blog_docs)
+
+    await _gather_safe(toilet(), taste())
 
 
 def _matched_keywords(profile: SituationProfile | None, e: _Enriched) -> list[str]:
@@ -283,14 +298,20 @@ async def find_candidates(
     except SourceUnavailable:
         return result(origin_area, [], NOTICE_KAKAO_DOWN)
 
-    # 3. 상위 8곳 병렬 보강 (공개 페이지 동시 읽기는 3개로 제한)
-    pages = _LimitedPages(deps.page_reader, asyncio.Semaphore(PAGE_CONCURRENCY))
-    enriched = await _gather_safe(*(_enrich(deps, pages, p, now) for p in places[:ENRICH_TOP]))
+    # 3. 상위 8곳 병렬 보강 (공개 페이지 동시 읽기 제한, 전체 마감 시각)
+    pages = _LimitedPages(deps.page_reader, deps.page_slots)
+    unknown_hours = OpenStatus(open_now=None, closes_at=None, checked_at=now)
+    enriched = [_Enriched(place=p, hours=unknown_hours) for p in places[:ENRICH_TOP]]
+    try:
+        async with asyncio.timeout(ENRICH_DEADLINE_S):
+            await _gather_safe(*(_enrich(deps, pages, e, now) for e in enriched))
+    except TimeoutError:
+        logger.warning("음식점 보강 마감(%ss) 초과: 끝난 항목만 씁니다", ENRICH_DEADLINE_S)
 
     # 4. 폐업·영업 종료 제외, 5. 정렬
     rows = []
     for e in enriched:
-        if e is None or e.excluded:
+        if e.excluded:
             continue
         matched = _matched_keywords(profile, e)
         walk = walking_minutes(lat, lng, e.place.lat, e.place.lng)

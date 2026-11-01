@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from dodeed.restaurant.reviews import Extractor, ReviewDoc, newest_first
+from dodeed.restaurant.reviews import Extractor, ReviewDoc, SourceKind, newest_first
 
 MAX_TOILET_DOCS = 6
 Location = Literal["inside", "building_shared", "unknown"]
@@ -19,6 +19,7 @@ class ToiletInfo(BaseModel):
     location: Location
     source_link: str | None
     source_date: date | None
+    source_kind: SourceKind | None = None
     conflicting: bool = False
 
 
@@ -68,5 +69,6 @@ async def toilet_info(reader: Extractor, docs: list[ReviewDoc]) -> ToiletInfo:
         location=locations[0] if locations else "unknown",
         source_link=latest.link,
         source_date=latest.posted,
+        source_kind=latest.source_kind,
         conflicting=len(set(genders)) > 1 or len(set(locations)) > 1,
     )

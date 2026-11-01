@@ -28,7 +28,13 @@ def _doc(row: dict) -> ReviewDoc:
         link=row["link"],
         posted=date.fromisoformat(row["posted"]) if row["posted"] else None,
         is_receipt_verified=row["is_receipt_verified"],
+        body_read=True,
     )
+
+
+def read(text: str, link: str, posted: date | None) -> ReviewDoc:
+    """본문까지 읽은 블로그 문서."""
+    return ReviewDoc(text, link, posted, body_read=True)
 
 
 @pytest.fixture
@@ -73,10 +79,10 @@ def test_mixed_fixture_labels_match(fixture_mixed_reviews):
 async def test_unknown_excluded_from_taste(fake_reader):
     reader, llm = fake_reader
     docs = [
-        ReviewDoc("내돈내산 국물 진함", "https://blog.naver.com/a/1", date(2026, 10, 1)),
-        ReviewDoc("직접 결제 김치 맛있음", "https://blog.naver.com/a/2", date(2026, 10, 2)),
-        ReviewDoc("내 돈 내 산 수육 추천", "https://blog.naver.com/a/3", date(2026, 10, 3)),
-        ReviewDoc("그냥 다녀온 국밥집 UNKNOWN-MARK", "https://blog.naver.com/a/4", None),
+        read("내돈내산 국물 진함", "https://blog.naver.com/a/1", date(2026, 10, 1)),
+        read("직접 결제 김치 맛있음", "https://blog.naver.com/a/2", date(2026, 10, 2)),
+        read("내 돈 내 산 수육 추천", "https://blog.naver.com/a/3", date(2026, 10, 3)),
+        read("그냥 다녀온 국밥집 UNKNOWN-MARK", "https://blog.naver.com/a/4", None),
     ]
     result = await taste_summary(reader, docs)
     assert result.status == "ok" and result.evidence_count == 3
@@ -88,9 +94,9 @@ async def test_unknown_excluded_from_taste(fake_reader):
 async def test_taste_insufficient_below_3_without_calling_reader(fake_reader):
     reader, llm = fake_reader
     docs = [
-        ReviewDoc("내돈내산 맛있음", "https://blog.naver.com/a/1", date(2026, 10, 1)),
-        ReviewDoc("직접 결제 맛있음", "https://blog.naver.com/a/2", date(2026, 10, 2)),
-        ReviewDoc("체험단 맛있음", "https://blog.naver.com/a/3", date(2026, 10, 3)),
+        read("내돈내산 맛있음", "https://blog.naver.com/a/1", date(2026, 10, 1)),
+        read("직접 결제 맛있음", "https://blog.naver.com/a/2", date(2026, 10, 2)),
+        read("체험단 맛있음", "https://blog.naver.com/a/3", date(2026, 10, 3)),
     ]
     result = await taste_summary(reader, docs)
     assert MIN_TASTE_REVIEWS == 3
@@ -101,7 +107,7 @@ async def test_taste_insufficient_below_3_without_calling_reader(fake_reader):
 
 async def test_reader_failure_is_insufficient():
     llm = FakeLLM([LLMResponse("not json")])
-    docs = [ReviewDoc(f"내돈내산 {i}", f"https://blog.naver.com/a/{i}", None) for i in range(3)]
+    docs = [read(f"내돈내산 {i}", f"https://blog.naver.com/a/{i}", None) for i in range(3)]
     result = await taste_summary(IsolatedReader(llm), docs)
     assert result.status == "insufficient" and result.summary is None
 
@@ -125,12 +131,29 @@ async def test_no_sponsored_review_in_taste_evidence(fixture_mixed_reviews, fake
 async def test_taste_uses_at_most_10_newest():
     llm = FakeLLM([LLMResponse('{"summary": "좋아요"}')])
     docs = [
-        ReviewDoc(
-            f"내돈내산 리뷰번호{i:02d}", f"https://blog.naver.com/a/{i}", date(2026, 1, i + 1)
-        )
+        read(f"내돈내산 리뷰번호{i:02d}", f"https://blog.naver.com/a/{i}", date(2026, 1, i + 1))
         for i in range(12)
     ]
     result = await taste_summary(IsolatedReader(llm), docs)
     assert result.evidence_count == 10
     sent = llm.calls[0].messages[-1].content
     assert "리뷰번호00" not in sent and "리뷰번호01" not in sent and "리뷰번호11" in sent
+
+
+async def test_snippet_only_docs_not_used_for_taste(fake_reader):
+    """본문을 못 읽은 문서는 대가성 표시가 본문에 숨어 있을 수 있어 맛 평가에서 뺀다."""
+    reader, llm = fake_reader
+    docs = [
+        ReviewDoc(f"내돈내산 후기 {i}", f"https://blog.naver.com/a/{i}", date(2026, 10, i + 1))
+        for i in range(5)
+    ]
+    result = await taste_summary(reader, docs)
+    assert result.status == "insufficient" and result.evidence_count == 0
+    assert llm.calls == []
+
+
+async def test_summary_truncated_to_80_chars():
+    llm = FakeLLM([LLMResponse(json.dumps({"summary": "가" * 200}))])
+    docs = [read(f"내돈내산 {i}", f"https://blog.naver.com/a/{i}", None) for i in range(3)]
+    result = await taste_summary(IsolatedReader(llm, max_text_field_chars=1000), docs)
+    assert result.summary == "가" * 80

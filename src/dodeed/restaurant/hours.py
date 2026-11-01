@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Protocol
 from zoneinfo import ZoneInfo
@@ -14,6 +15,7 @@ from dodeed.sources.public_page import DomainNotAllowed
 
 KST = ZoneInfo("Asia/Seoul")
 _WEEKDAYS = "월화수목금토일"
+_CLOSES_AT = re.compile(r"^\d{1,2}:\d{2}$")
 
 
 class PageText(Protocol):
@@ -62,4 +64,7 @@ async def open_status(
     ext = await reader.extract(text, HoursExtract, hours_instruction(now))
     if ext is None:
         return unknown
-    return OpenStatus(open_now=ext.open_now, closes_at=ext.closes_at, checked_at=now)
+    closes_at = ext.closes_at.strip() if ext.closes_at else None
+    if closes_at is not None and not _CLOSES_AT.match(closes_at):
+        closes_at = None  # 리더가 형식 밖의 글을 넣으면 버린다
+    return OpenStatus(open_now=ext.open_now, closes_at=closes_at, checked_at=now)
