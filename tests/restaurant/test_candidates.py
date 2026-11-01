@@ -315,3 +315,43 @@ async def test_enrich_deadline_returns_partial_results(scenario, kst_now, monkey
     c = cl.candidates[0]
     assert c.open_status.open_now is True  # 끝난 항목은 남는다
     assert c.taste.status == "insufficient" and c.toilet.location == "unknown"
+
+
+def _egress_on_place_page(scenario, place_id: str):
+    """해당 장소의 영업 정보 추출에서만 EgressBlocked를 던지게 한다."""
+    original = scenario.reader.extract
+
+    async def extract(raw, schema, instruction):
+        if schema is HoursExtract and f"[장소페이지] {place_id}" in raw:
+            raise EgressBlocked("secret")
+        return await original(raw, schema, instruction)
+
+    scenario.reader.extract = extract
+
+
+async def test_egress_blocked_not_lost_when_deadline_hits(scenario, kst_now, monkeypatch):
+    monkeypatch.setattr(candidates_mod, "ENRICH_DEADLINE_S", 0.3)
+    scenario.page_reader.slow_marker = "blog.naver.com"
+    scenario.add(
+        PlaceFx("1", "가집", 1),
+        PlaceFx("2", "나집", 2, blog=[blog(f"글{j}", "설명", body="본문") for j in range(4)]),
+    )
+    _egress_on_place_page(scenario, "1")
+    with pytest.raises(EgressBlocked):
+        await find_candidates(scenario.deps, SearchRequest(area_query="강남역"), None, kst_now)
+
+
+async def test_egress_blocked_fails_fast_before_deadline(scenario, kst_now, monkeypatch):
+    monkeypatch.setattr(candidates_mod, "ENRICH_DEADLINE_S", 20)
+    scenario.page_reader.slow_marker = "blog.naver.com"
+    scenario.add(
+        PlaceFx("1", "가집", 1),
+        PlaceFx("2", "나집", 2, blog=[blog(f"글{j}", "설명", body="본문") for j in range(4)]),
+    )
+    _egress_on_place_page(scenario, "1")
+    started = time.monotonic()
+    with pytest.raises(EgressBlocked):
+        await find_candidates(scenario.deps, SearchRequest(area_query="강남역"), None, kst_now)
+    assert time.monotonic() - started < 3
+    await asyncio.sleep(0.05)
+    assert scenario.page_reader.active == 0  # 남은 페이지 읽기는 취소되었다

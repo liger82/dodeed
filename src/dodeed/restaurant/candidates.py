@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
@@ -113,9 +114,39 @@ class _LimitedPages:
             return await self._inner.text(url, timeout_s)
 
 
+@dataclass
+class _EgressSlot:
+    """검색 한 번의 보강 단계에서 처음 생긴 EgressBlocked를 생긴 즉시 기록한다.
+
+    gather(return_exceptions=True)는 형제 작업이 모두 끝나야 예외를 돌려주므로, 마감 시각에
+    걸려 취소되면 이미 생긴 EgressBlocked가 사라질 수 있다. 그래서 따로 기록해 두고 다시 던진다.
+    """
+
+    error: EgressBlocked | None = None
+    event: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def record(self, exc: EgressBlocked) -> None:
+        if self.error is None:
+            self.error = exc
+        self.event.set()
+
+
+_EGRESS_SLOT: ContextVar[_EgressSlot | None] = ContextVar("dodeed_egress_slot", default=None)
+
+
+async def _guarded(aw: Awaitable[Any]) -> Any:
+    try:
+        return await aw
+    except EgressBlocked as exc:
+        slot = _EGRESS_SLOT.get()
+        if slot is not None:
+            slot.record(exc)
+        raise
+
+
 async def _gather_safe(*aws: Awaitable[Any]) -> list[Any]:
     """병렬 실행 후 실패한 항목은 None으로 바꾼다. EgressBlocked와 취소는 다시 던진다."""
-    results = await asyncio.gather(*aws, return_exceptions=True)
+    results = await asyncio.gather(*(_guarded(a) for a in aws), return_exceptions=True)
     for r in results:
         if isinstance(r, EgressBlocked) or (
             isinstance(r, BaseException) and not isinstance(r, Exception)
@@ -218,6 +249,36 @@ async def _enrich(deps: RestaurantDeps, pages: PageText, e: _Enriched, now: date
     await _gather_safe(toilet(), taste())
 
 
+async def _enrich_all(
+    deps: RestaurantDeps, pages: PageText, enriched: list[_Enriched], now: datetime
+) -> None:
+    """마감 시각 안에서 보강한다. 끝나지 않은 항목은 확인 안 됨으로 남는다.
+
+    EgressBlocked가 생기면 남은 작업을 바로 취소하고 그 예외를 던진다 (마감에 걸려도 잃지 않는다).
+    """
+    slot = _EgressSlot()
+    token = _EGRESS_SLOT.set(slot)
+    try:
+        work = asyncio.create_task(_gather_safe(*(_enrich(deps, pages, e, now) for e in enriched)))
+        stop = asyncio.create_task(slot.event.wait())
+    finally:
+        _EGRESS_SLOT.reset(token)  # 작업은 만들 때 컨텍스트를 복사했으므로 바로 되돌려도 된다
+    try:
+        await asyncio.wait(
+            {work, stop}, timeout=ENRICH_DEADLINE_S, return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        work.cancel()
+        stop.cancel()
+        await asyncio.gather(work, stop, return_exceptions=True)
+    if slot.error is not None:
+        raise slot.error
+    if work.cancelled():
+        logger.warning("음식점 보강 마감(%ss) 초과: 끝난 항목만 씁니다", ENRICH_DEADLINE_S)
+        return
+    work.result()  # 취소 같은 예상하지 못한 BaseException은 그대로 전한다
+
+
 def _matched_keywords(profile: SituationProfile | None, e: _Enriched) -> list[str]:
     if profile is None:
         return []
@@ -302,11 +363,7 @@ async def find_candidates(
     pages = _LimitedPages(deps.page_reader, deps.page_slots)
     unknown_hours = OpenStatus(open_now=None, closes_at=None, checked_at=now)
     enriched = [_Enriched(place=p, hours=unknown_hours) for p in places[:ENRICH_TOP]]
-    try:
-        async with asyncio.timeout(ENRICH_DEADLINE_S):
-            await _gather_safe(*(_enrich(deps, pages, e, now) for e in enriched))
-    except TimeoutError:
-        logger.warning("음식점 보강 마감(%ss) 초과: 끝난 항목만 씁니다", ENRICH_DEADLINE_S)
+    await _enrich_all(deps, pages, enriched, now)
 
     # 4. 폐업·영업 종료 제외, 5. 정렬
     rows = []
