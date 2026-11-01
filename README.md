@@ -25,14 +25,16 @@ cp .env.example .env
 | `DODEED_DATABASE_URL` | PostgreSQL 주소. docker compose 기본값은 `postgresql+asyncpg://dodeed:dodeed@localhost:5432/dodeed` |
 | `DODEED_REDIS_URL` | Redis 주소. 기본값은 `redis://localhost:6379/0` |
 | `DODEED_WEB_BASE_URL` | 웹 주소. 가입 안내 링크에 쓰고, `https://`로 시작하면 보안 쿠키를 씁니다. 로컬은 `http://localhost:8000` |
-| `DODEED_TELEGRAM_BOT_TOKEN` | 텔레그램 [@BotFather](https://t.me/BotFather)에서 `/newbot`으로 봇을 만들면 받는 토큰 |
-| `DODEED_TELEGRAM_WEBHOOK_SECRET` | 웹훅 요청을 확인하는 비밀값. 아무 임의 문자열이면 됩니다 (영문·숫자·`_`·`-`, 1–256자) |
-| `DODEED_KAKAO_REST_API_KEY` | [카카오 개발자](https://developers.kakao.com) → 내 애플리케이션 → 앱 키의 **REST API 키** |
-| `DODEED_NAVER_CLIENT_ID` | [네이버 개발자센터](https://developers.naver.com)에서 애플리케이션을 등록하고 **검색** API를 고르면 받는 Client ID |
-| `DODEED_NAVER_CLIENT_SECRET` | 위 애플리케이션의 Client Secret |
-| `DODEED_LOCALDATA_API_KEY` | [공공데이터포털](https://www.data.go.kr)에서 "행정안전부 식품_일반음식점 조회서비스"(일반음식점 인허가)를 활용 신청하면 받는 일반 인증키. **Decoding** 키를 넣으세요 |
-| `DODEED_SECRET_HMAC_KEY` | 내부 HMAC 키. 긴 임의 문자열을 쓰세요 |
+| `DODEED_TELEGRAM_BOT_TOKEN` | 텔레그램 [@BotFather](https://t.me/BotFather)에서 `/newbot`으로 봇을 만들면 받는 토큰 (8자 이상) |
+| `DODEED_TELEGRAM_WEBHOOK_SECRET` | 웹훅 요청을 확인하는 비밀값. 임의 문자열을 쓰세요. 비워 둘 수 없고, 영문·숫자·`_`·`-`만 1–256자 |
+| `DODEED_KAKAO_REST_API_KEY` | [카카오 개발자](https://developers.kakao.com) → 내 애플리케이션 → 앱 키의 **REST API 키** (8자 이상) |
+| `DODEED_NAVER_CLIENT_ID` | [네이버 개발자센터](https://developers.naver.com)에서 애플리케이션을 등록하고 **검색** API를 고르면 받는 Client ID (8자 이상) |
+| `DODEED_NAVER_CLIENT_SECRET` | 위 애플리케이션의 Client Secret (8자 이상) |
+| `DODEED_LOCALDATA_API_KEY` | [공공데이터포털](https://www.data.go.kr)에서 "행정안전부 식품_일반음식점 조회서비스"(일반음식점 인허가)를 활용 신청하면 받는 일반 인증키. **Decoding** 키를 넣으세요 (8자 이상) |
+| `DODEED_SECRET_HMAC_KEY` | 내부 HMAC 키(세션 쿠키 서명). 32자 이상의 임의 문자열이어야 합니다 |
 | `DODEED_LLM` | LLM 공급자. 지금은 `fake`만 됩니다 (기본값) |
+
+비밀값이 비어 있거나 위 조건에 맞지 않으면 서버가 시작되지 않습니다. 빈 웹훅 비밀값이나 짧은 HMAC 키는 누구나 다른 사용자로 위장할 수 있게 만들기 때문입니다.
 
 `DODEED_SECRET_HMAC_KEY`는 이렇게 만들 수 있습니다.
 

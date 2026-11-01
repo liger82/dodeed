@@ -44,7 +44,7 @@ def settings() -> Settings:
         naver_client_id="test-naver-id",
         naver_client_secret="test-naver-secret",
         localdata_api_key="test-localdata-key",
-        secret_hmac_key="test-hmac-key",
+        secret_hmac_key="test-hmac-key-0123456789abcdefghij",
     )
 
 
