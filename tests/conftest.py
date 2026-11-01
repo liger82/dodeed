@@ -82,3 +82,11 @@ async def client(settings, db_session):
 @pytest.fixture
 def registry() -> SecretRegistry:
     return SecretRegistry(b"test-hmac-key")
+
+
+@pytest_asyncio.fixture
+async def signed_up_user_id(db_session) -> uuid.UUID:
+    """users FK를 만족하도록 실제로 가입시킨 사용자."""
+    from dodeed.accounts.service import signup
+
+    return await signup(db_session, "svc@example.com", "pw-12345678", "서비스")
