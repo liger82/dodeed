@@ -74,3 +74,25 @@ async def test_lifespan_leaves_injected_resources(settings, monkeypatch):
     async with app.router.lifespan_context(app):
         pass
     assert closed == []
+
+
+async def test_lifespan_logs_close_failure_with_traceback(settings, monkeypatch, caplog):
+    closed: list[str] = []
+
+    async def ok(self, *args, **kwargs):
+        closed.append("ok")
+
+    async def boom(self, *args, **kwargs):
+        raise RuntimeError("close failed")
+
+    monkeypatch.setattr(httpx.AsyncClient, "aclose", ok)
+    monkeypatch.setattr(PublicPageReader, "aclose", boom)
+    monkeypatch.setattr(aioredis.Redis, "aclose", ok)
+    monkeypatch.setattr(AiohttpSession, "close", ok)
+    app = create_app(settings)
+    with caplog.at_level(logging.WARNING, logger="dodeed.app"):
+        async with app.router.lifespan_context(app):
+            pass
+    assert len(closed) == 3  # 실패해도 나머지 자원은 정리한다
+    (rec,) = [r for r in caplog.records if r.name == "dodeed.app"]
+    assert rec.exc_info is not None and rec.exc_info[0] is RuntimeError

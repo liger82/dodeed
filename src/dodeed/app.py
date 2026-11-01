@@ -101,7 +101,7 @@ def create_app(
             try:
                 await close()
             except Exception:  # 종료 중 실패는 다른 자원 정리를 막지 않는다
-                logging.getLogger(__name__).warning("자원 종료 실패", exc_info=False)
+                logging.getLogger(__name__).warning("자원 종료 실패", exc_info=True)
 
     app = FastAPI(title="dodeed", lifespan=lifespan)
     app.state.settings = settings
