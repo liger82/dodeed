@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -406,3 +407,67 @@ async def test_nested_argument_values_restored_keys_untouched():
         "n": 3,
         "b": None,
     }
+
+
+def _raise(exc):
+    def step(messages):
+        raise exc
+
+    return step
+
+
+async def test_llm_error_after_tool_keeps_audit_and_returns_retry(
+    db_session, signed_up_user_id, conv, registry
+):
+    from dodeed.agent.orchestrator import MSG_RETRY_LATER
+
+    tools = CountingTools()
+    llm = ScriptedLLM(
+        [tool_call("search_restaurants"), _raise(RuntimeError("provider down: secret-ish detail"))]
+    )
+    out = await make_orch(llm, registry, tools.registry).handle(
+        db_session, signed_up_user_id, conv, "맛집", NO_PII
+    )
+    assert out == [OutText(text=MSG_RETRY_LATER)]
+    assert MSG_RETRY_LATER == "잠시 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
+    assert tools.search_calls == 1
+    # 요청이 이후에 롤백되어도 감사 행은 이미 커밋되어 남는다
+    await db_session.rollback()
+    rows = await audit_rows(db_session, signed_up_user_id)
+    assert [(r.tool, r.decision, r.detail) for r in rows] == [
+        (
+            "search_restaurants",
+            "allow",
+            {"task_type": "restaurant_lookup", "service": "dodeed", "reason": "읽기 도구"},
+        ),
+        ("llm", "error", {"type": "RuntimeError"}),
+    ]
+    assert await history(db_session, conv.id) == []
+
+
+async def test_cancelled_turn_keeps_policy_and_unknown_tool_audit(
+    db_session, signed_up_user_id, conv, registry
+):
+    tools = CountingTools()
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                text=None,
+                tool_calls=[
+                    ToolCall(id="a", name="transfer_money", arguments={}),
+                    ToolCall(id="b", name="search_restaurants", arguments={}),
+                ],
+            ),
+            _raise(asyncio.CancelledError()),
+        ]
+    )
+    with pytest.raises(asyncio.CancelledError):  # BaseException은 잡지 않는다
+        await make_orch(llm, registry, tools.registry).handle(
+            db_session, signed_up_user_id, conv, "맛집", NO_PII
+        )
+    await db_session.rollback()
+    rows = await audit_rows(db_session, signed_up_user_id)
+    assert [(r.tool, r.decision) for r in rows] == [
+        ("unknown", "deny"),
+        ("search_restaurants", "allow"),
+    ]

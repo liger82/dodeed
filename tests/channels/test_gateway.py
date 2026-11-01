@@ -130,3 +130,26 @@ async def test_failed_processing_releases_dedupe_key(
     out = await gateway.handle(db_session, text("hi", eid="r"), now=now)
     assert out == [OutText(text="echo:hi")]
     assert len(orch.calls) == 2
+
+
+async def test_orchestrator_llm_error_does_not_reach_gateway(
+    settings, redis_client, db_session, signed_up_user_id, registry, now
+):
+    from dodeed.agent.orchestrator import MSG_RETRY_LATER, Orchestrator
+    from dodeed.channels.gateway import Gateway
+    from dodeed.llm.guarded import GuardedLLM
+    from dodeed.policy.engine import PolicyEngine
+    from dodeed.policy.tools import ToolRegistry
+
+    class BrokenLLM:
+        async def complete(self, messages, tools=None, json_schema=None):
+            raise TimeoutError("provider timeout")
+
+    orch = Orchestrator(
+        GuardedLLM(BrokenLLM(), registry, "orchestrator"), ToolRegistry(), PolicyEngine()
+    )
+    gw = Gateway(orch, settings, redis_client)
+    code = await issue_link_code(db_session, signed_up_user_id, now)
+    await gw.handle(db_session, text(f"/link {code}"), now=now)
+    out = await gw.handle(db_session, text("맛집", eid="e2"), now=now)
+    assert out == [OutText(text=MSG_RETRY_LATER)]

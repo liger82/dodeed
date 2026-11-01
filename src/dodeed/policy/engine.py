@@ -81,6 +81,8 @@ class PolicyEngine:
             approved=None,
             detail={"task_type": task_type, "service": spec.service, "reason": result.reason},
         )
+        # 판단 기록은 이후 단계가 실패해 롤백되더라도 남아야 한다 (REQ-SEC-007)
+        await db.commit()
         return result
 
     async def _decide(self, db, user_id, task_type, spec, approval_token) -> PolicyResult:
