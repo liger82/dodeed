@@ -1,4 +1,3 @@
-import os
 from datetime import UTC, datetime
 
 import httpx
@@ -6,16 +5,28 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-TEST_DATABASE_URL = "postgresql+asyncpg://dodeed:dodeed@localhost:5432/dodeed_test"
-os.environ["DODEED_DATABASE_URL"] = TEST_DATABASE_URL
+from dodeed.app import create_app
+from dodeed.config import Settings
 
-from dodeed.app import create_app  # noqa: E402
-from dodeed.config import Settings  # noqa: E402
+TEST_DATABASE_URL = "postgresql+asyncpg://dodeed:dodeed@localhost:5432/dodeed_test"
+
 
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(database_url=TEST_DATABASE_URL)
+    return Settings(
+        _env_file=None,
+        database_url=TEST_DATABASE_URL,
+        redis_url="redis://localhost:6379/1",
+        web_base_url="http://test",
+        telegram_bot_token="test-telegram-token",
+        telegram_webhook_secret="test-webhook-secret",
+        kakao_rest_api_key="test-kakao-key",
+        naver_client_id="test-naver-id",
+        naver_client_secret="test-naver-secret",
+        localdata_api_key="test-localdata-key",
+        secret_hmac_key="test-hmac-key",
+    )
 
 
 @pytest.fixture
