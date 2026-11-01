@@ -15,7 +15,7 @@ from dodeed.llm.guarded import GuardedLLM
 from dodeed.llm.types import LLMResponse, Message, ToolCall
 from dodeed.policy.engine import PolicyEngine
 from dodeed.policy.tools import Grade, ToolRegistry, ToolSpec
-from dodeed.restaurant.candidates import NeedLocation
+from dodeed.restaurant.candidates import CandidateList, NeedLocation
 from dodeed.restaurant.tools import SEARCH_RESTAURANTS
 from dodeed.restaurant.tools import register as register_restaurant
 from dodeed.security.egress import EgressBlocked
@@ -325,3 +325,84 @@ async def test_followup_gets_candidate_summary_and_area_name(
         "assistant",
         "user",
     ]
+
+
+class CapturingSearch:
+    """search_restaurants가 받은 요청을 기록하고, 정해진 결과를 돌려준다."""
+
+    def __init__(self, result=None):
+        self.requests = []
+        self.registry = ToolRegistry()
+        self._result = result
+
+        async def search(ctx, req):
+            self.requests.append(req)
+            return self._result(req) if self._result else NeedLocation()
+
+        self.registry.register(SEARCH_RESTAURANTS, search)
+
+
+async def test_one_char_name_does_not_break_cuisine(db_session, signed_up_user_id, conv, registry):
+    pii = UserPII(name="김", phone=None, email=None, address=None)
+    search = CapturingSearch()
+
+    def call_with_seen_words(messages):
+        area, cuisine, _ = messages[-1].content.split()
+        return tool_call("search_restaurants", {"area_query": area, "cuisine": cuisine})
+
+    llm = ScriptedLLM([call_with_seen_words, text("찾아볼게요.")])
+    await make_orch(llm, registry, search.registry).handle(
+        db_session, signed_up_user_id, conv, "강남역 김치찌개 맛집", pii
+    )
+    assert [r.cuisine for r in search.requests] == ["김치찌개"]
+    assert "김치찌개" in dump_calls(llm.calls)
+
+
+async def test_placeholder_in_arguments_restored_for_tool_only(
+    db_session, signed_up_user_id, conv, registry
+):
+    pii = UserPII(name="홍대감", phone=None, email=None, address=None)
+
+    def echo_area(req):
+        return CandidateList(
+            request=req, origin_area=req.area_query, candidates=[], defaults_used=[], notice=None
+        )
+
+    search = CapturingSearch(echo_area)
+    llm = ScriptedLLM(
+        [
+            tool_call("search_restaurants", {"area_query": "[사용자_이름]집 앞"}),
+            text("[사용자_이름]집 앞을 찾아봤어요."),
+        ]
+    )
+    out = await make_orch(llm, registry, search.registry).handle(
+        db_session, signed_up_user_id, conv, "홍대감집 앞 맛집", pii
+    )
+    # 우리 도구에는 원래 값이 간다
+    assert [r.area_query for r in search.requests] == ["홍대감집 앞"]
+    # LLM이 다시 받는 것(도구 호출 메시지, 도구 결과)은 가명 처리된 채로 남는다
+    seen = dump_calls(llm.calls)
+    assert "홍대감" not in seen
+    assert "[사용자_이름]집 앞" in seen
+    (summary,) = tool_results(llm.calls)
+    assert summary["origin_area"] == "[사용자_이름]집 앞"
+    assert out[0] == OutText(text="홍대감집 앞을 찾아봤어요.")
+
+    # 다음 턴의 참고 정보(이전 조회 요약)에도 원래 값이 나가지 않는다
+    llm2 = ScriptedLLM([text("네.")])
+    await make_orch(llm2, registry, search.registry).handle(
+        db_session, signed_up_user_id, conv, "고마워", pii
+    )
+    assert "홍대감" not in dump_calls(llm2.calls)
+
+
+async def test_nested_argument_values_restored_keys_untouched():
+    from dodeed.agent.orchestrator import restore_arguments
+
+    mapping = {"[사용자_이름]": "홍대감"}
+    args = {"[사용자_이름]": ["[사용자_이름]집", {"x": "[사용자_이름]"}], "n": 3, "b": None}
+    assert restore_arguments(args, mapping) == {
+        "[사용자_이름]": ["홍대감집", {"x": "홍대감"}],
+        "n": 3,
+        "b": None,
+    }

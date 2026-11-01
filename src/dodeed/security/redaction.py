@@ -54,12 +54,27 @@ def is_card_number(candidate: str) -> bool:
     return digits.isdigit() and 13 <= len(digits) <= 19 and luhn_valid(digits)
 
 
+_NUMBERED_RE = re.compile(r"^(\[.+)_\d+\]$")
+
+
+def _base_of(placeholder: str) -> str:
+    m = _NUMBERED_RE.match(placeholder)
+    return f"{m.group(1)}]" if m else placeholder
+
+
+# 이보다 짧은 이름은 일반 낱말과 겹치므로("김" → "김치찌개") 가리지 않는다
+_MIN_NAME_LEN = 2
+
+
 class _Placeholders:
     """같은 자리표시자가 서로 다른 값을 가리키면 `_2`, `_3`처럼 번호를 붙인다."""
 
-    def __init__(self) -> None:
-        self.mapping: dict[str, str] = {}
-        self._by_value: dict[tuple[str, str], str] = {}
+    def __init__(self, mapping: dict[str, str] | None = None) -> None:
+        # 이미 있는 대응표를 받으면 그 위에 이어서 번호를 붙인다 (같은 값은 같은 자리표시자)
+        self.mapping: dict[str, str] = mapping if mapping is not None else {}
+        self._by_value: dict[tuple[str, str], str] = {
+            (_base_of(ph), value): ph for ph, value in self.mapping.items()
+        }
 
     def get(self, base: str, value: str) -> str:
         key = (base, value)
@@ -76,12 +91,14 @@ class _Placeholders:
         return ph
 
 
-def redact(text: str, pii: UserPII) -> Redacted:
-    ph = _Placeholders()
+def redact(text: str, pii: UserPII, mapping: dict[str, str] | None = None) -> Redacted:
+    """mapping을 주면 그 대응표를 이어서 쓴다 (같은 턴의 다른 텍스트를 가릴 때)."""
+    ph = _Placeholders(mapping)
+    name = pii.name if pii.name and len(pii.name.strip()) >= _MIN_NAME_LEN else None
 
     # 1) 알고 있는 값은 그대로 일치하면 바꾼다.
     for value, base in (
-        (pii.name, PH_NAME),
+        (name, PH_NAME),
         (pii.email, PH_EMAIL),
         (pii.address, PH_ADDRESS),
     ):

@@ -74,3 +74,29 @@ def test_known_phone_in_other_format_and_unknown_phone_distinct():
     pii = UserPII(None, "+82 10-1234-5678", None, None)
     r = redact("010-1234-5678 / 010-9999-8888", pii)
     assert r.text == "[사용자_전화번호] / [사용자_전화번호_2]"
+
+
+def test_one_char_name_not_redacted():
+    pii = UserPII(name="김", phone=None, email=None, address=None)
+    r = redact("강남역 김치찌개 맛집", pii)
+    assert r.text == "강남역 김치찌개 맛집"
+    assert r.mapping == {}
+
+
+def test_two_char_name_redacted():
+    pii = UserPII(name="김철", phone=None, email=None, address=None)
+    assert redact("나는 김철", pii).text == "나는 [사용자_이름]"
+
+
+def test_name_short_after_strip_not_redacted():
+    pii = UserPII(name=" 김 ", phone=None, email=None, address=None)
+    assert redact("나 김 이야", pii).text == "나 김 이야"
+
+
+def test_redact_extends_existing_mapping_consistently():
+    pii = UserPII(name="홍대감", phone=None, email=None, address=None)
+    first = redact("홍대감 010-1111-2222", pii)
+    second = redact("다시 010-3333-4444 그리고 홍대감, 010-1111-2222", pii, first.mapping)
+    assert second.mapping is first.mapping
+    assert second.text == "다시 [사용자_전화번호_2] 그리고 [사용자_이름], [사용자_전화번호]"
+    assert restore(second.text, second.mapping) == "다시 010-3333-4444 그리고 홍대감, 010-1111-2222"

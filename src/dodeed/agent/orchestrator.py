@@ -20,7 +20,7 @@ from dodeed.policy.tools import TASK_TOOLSETS, ToolContext, ToolRegistry
 from dodeed.restaurant.candidates import CandidateList, NeedLocation
 from dodeed.restaurant.cards import to_cards
 from dodeed.security.egress import EgressBlocked
-from dodeed.security.redaction import UserPII, redact, restore
+from dodeed.security.redaction import Redacted, UserPII, redact, restore
 from dodeed.sessions.service import Conversation, append, get_state, history, set_state
 from dodeed.sources import SourceUnavailable
 from dodeed.sources.kakao_local import KakaoLocal
@@ -60,6 +60,20 @@ def summarize(cl: CandidateList) -> dict:
     }
 
 
+def restore_arguments(value: object, mapping: dict[str, str]) -> object:
+    """도구 인자의 문자열 값에서 자리표시자를 원래 값으로 되돌린다 (키는 건드리지 않는다).
+
+    되돌린 값은 우리 도구에만 넘기고 LLM에는 다시 보내지 않는다.
+    """
+    if isinstance(value, str):
+        return restore(value, mapping)
+    if isinstance(value, dict):
+        return {k: restore_arguments(v, mapping) for k, v in value.items()}
+    if isinstance(value, list):
+        return [restore_arguments(v, mapping) for v in value]
+    return value
+
+
 @dataclass
 class _Produced:
     """이번 턴에 도구가 만든, 사용자에게 보낼 결과."""
@@ -95,7 +109,7 @@ class Orchestrator:
         red = redact(text, pii)
         produced = _Produced()
         try:
-            final = await self._run(db, user_id, conversation, red.text, produced)
+            final = await self._run(db, user_id, conversation, red, pii, produced)
         except EgressBlocked as e:
             # 막힌 내용은 남기지 않는다: 규칙 이름만 감사 로그에, 이번 턴은 이력에 남기지 않는다
             await record(
@@ -137,16 +151,21 @@ class Orchestrator:
         db: AsyncSession,
         user_id: uuid.UUID,
         conversation: Conversation,
-        user_text: str,
+        red: Redacted,
+        pii: UserPII,
         produced: _Produced,
     ) -> str | None:
-        """LLM 루프를 돌려 최종 텍스트를 돌려준다. max_steps를 넘기면 None."""
+        """LLM 루프를 돌려 최종 텍스트를 돌려준다. max_steps를 넘기면 None.
+
+        LLM에 다시 들어가는 참고 정보와 도구 결과도 같은 대응표(red.mapping)로 가린다.
+        도구에 넘긴 원래 값이 결과에 되비쳐 나가지 않게 하기 위해서다.
+        """
         messages = [Message("system", prompts.SYSTEM)]
         context = await self._context(db, conversation)
         if context is not None:
-            messages.append(Message("system", context))
+            messages.append(Message("system", redact(context, pii, red.mapping).text))
         messages += await history(db, conversation.id)
-        messages.append(Message("user", user_text))
+        messages.append(Message("user", red.text))
         tools = self._registry.tool_defs(sorted(TASK_TOOLSETS[TASK_TYPE]))
 
         for _ in range(self._max_steps):
@@ -155,10 +174,11 @@ class Orchestrator:
                 return resp.text or ""
             messages.append(Message("assistant", resp.text or "", tool_calls=list(resp.tool_calls)))
             for call in resp.tool_calls:
-                result = await self._call_tool(db, user_id, conversation, call, produced)
-                messages.append(
-                    Message("tool", json.dumps(result, ensure_ascii=False), tool_call_id=call.id)
+                result = await self._call_tool(
+                    db, user_id, conversation, call, red.mapping, produced
                 )
+                content = redact(json.dumps(result, ensure_ascii=False), pii, red.mapping).text
+                messages.append(Message("tool", content, tool_call_id=call.id))
         return None
 
     async def _call_tool(
@@ -167,6 +187,7 @@ class Orchestrator:
         user_id: uuid.UUID,
         conversation: Conversation,
         call: ToolCall,
+        mapping: dict[str, str],
         produced: _Produced,
     ) -> dict:
         try:
@@ -188,7 +209,7 @@ class Orchestrator:
             return {"error": "policy_denied", "reason": policy.reason}
 
         try:
-            req = spec.input_model.model_validate(call.arguments)
+            req = spec.input_model.model_validate(restore_arguments(call.arguments, mapping))
         except ValidationError:
             return {"error": "invalid_arguments"}  # 입력값을 되돌려 보내지 않는다
 
