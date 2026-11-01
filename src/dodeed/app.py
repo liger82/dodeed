@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from dodeed.accounts.api import router as accounts_router
 from dodeed.channels.gateway import Gateway
 from dodeed.channels.telegram import router as telegram_router
+from dodeed.channels.web import router as web_router
 from dodeed.config import Settings, get_settings
 
 
@@ -21,6 +22,7 @@ def create_app(
 
     app.include_router(accounts_router)
     app.include_router(telegram_router)
+    app.include_router(web_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
