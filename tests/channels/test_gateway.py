@@ -1,9 +1,6 @@
 import pytest
-import pytest_asyncio
-import redis.asyncio as aioredis
 
 from dodeed.accounts.service import issue_link_code, resolve_user
-from dodeed.channels.gateway import Gateway
 from dodeed.channels.messages import (
     InboundButton,
     InboundLocation,
@@ -11,34 +8,6 @@ from dodeed.channels.messages import (
     OutText,
 )
 from dodeed.sessions.service import get_or_create, get_state, set_state
-
-
-class FakeOrchestrator:
-    def __init__(self):
-        self.calls = []
-
-    async def handle(self, db, user_id, conversation, text, pii):
-        self.calls.append((user_id, conversation, text, pii))
-        return [OutText(text=f"echo:{text}")]
-
-
-@pytest_asyncio.fixture
-async def redis_client(settings):
-    r = aioredis.from_url(settings.redis_url)
-    await r.flushdb()
-    yield r
-    await r.flushdb()
-    await r.aclose()
-
-
-@pytest.fixture
-def orch():
-    return FakeOrchestrator()
-
-
-@pytest.fixture
-def gateway(orch, settings, redis_client):
-    return Gateway(orch, settings, redis_client)
 
 
 def text(t, eid="e1", ext="tg-1"):
