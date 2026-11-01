@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from dodeed.app import create_app
 from dodeed.config import Settings
+from dodeed.db import get_db
 
 TEST_DATABASE_URL = "postgresql+asyncpg://dodeed:dodeed@localhost:5432/dodeed_test"
 ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
@@ -69,8 +70,9 @@ async def db_session(settings):
 
 
 @pytest_asyncio.fixture
-async def client(settings):
+async def client(settings, db_session):
     app = create_app(settings)
+    app.dependency_overrides[get_db] = lambda: db_session
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
