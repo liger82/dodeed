@@ -282,7 +282,7 @@ dodeed("Just say it, we Do the Deed.")는 한국 사용자를 위한 **AI 에이
 - 기본 이상 탐지 규칙은 짧은 시간 안의 반복 예약이나 취소, 처음 보는 도메인 접근 시도, 출구 필터 경보다 [Claude 판단]. 이런 일이 생기면 해당 사용자의 쓰기·실행 작업을 멈추고 앱과 메신저로 알린다.
 
 ### REQ-SEC-008 LLM 공급자 조건
-- LLM 공급자는 아직 정하지 않았다 [사용자 결정]. 공급자를 고를 때 **데이터를 보관하지 않고(zero retention) 학습에 쓰지 않는다**는 조건을 필수로 한다 [Claude 판단].
+- 2026-11-01 개정: LLM 공급자와 데이터 보관 조건은 [기억·스킬·스케줄 설계](2026-11-01-dodeed-memory-skills-scheduling-design.md) §8을 따른다 (1차 gpt-6-luna, 백업 gemini-3.5-flash-lite; CBT는 학습 미사용 + 보관 기간 공개, 정식 출시 전 무보관 재검토) [사용자 결정].
 - LLM 호출은 어댑터 인터페이스를 거친다. 오케스트레이터, 격리 리더, 조작 LLM은 각각 다른 모델로 설정할 수 있다.
 
 ### REQ-SEC-009 법률 검토 [확인 필요]
@@ -327,7 +327,7 @@ dodeed("Just say it, we Do the Deed.")는 한국 사용자를 위한 **AI 에이
   - DB: PostgreSQL. 작업 큐와 스케줄러에는 Redis 기반 큐를 쓴다
   - 일회용 작업 공간: 사용자별·작업별 컨테이너 (예: ECS Fargate, Cloud Run jobs)
   - dodeed 앱: React Native와 Flutter 중 구현자가 고른다 [구현 재량]
-- LLM: 아직 정하지 않았다 [사용자 결정]. 어댑터 인터페이스 뒤에 둔다 (REQ-SEC-008).
+- LLM: 1차 gpt-6-luna, 백업 gemini-3.5-flash-lite [사용자 결정]. 어댑터 인터페이스 뒤에 둔다 (REQ-SEC-008).
 
 ## 12. 수익 모델 [사용자 결정: 구독제]
 - 구독 등급별 가격과 구성은 아직 정하지 않았다.
