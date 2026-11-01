@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from itsdangerous import BadSignature, URLSafeTimedSerializer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dodeed.accounts import service
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api")
 
 class SignupBody(BaseModel):
     email: str
-    password: str
+    password: str = Field(min_length=8)
     display_name: str
 
 

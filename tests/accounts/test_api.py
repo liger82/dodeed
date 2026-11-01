@@ -33,3 +33,10 @@ async def test_login_then_issue_code_and_unlink(client):
     assert r.status_code == 200
     assert len(r.json()["code"]) == 6 and r.json()["expires_at"]
     assert (await client.delete("/api/channels/telegram")).status_code == 204
+
+
+async def test_signup_short_password_422(client):
+    r = await client.post("/api/signup", json={**BODY, "password": "1234567"})
+    assert r.status_code == 422
+    r = await client.post("/api/signup", json={**BODY, "password": "12345678"})
+    assert r.status_code == 200
