@@ -1,15 +1,32 @@
+import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
 import pytest_asyncio
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from dodeed.app import create_app
 from dodeed.config import Settings
 
 TEST_DATABASE_URL = "postgresql+asyncpg://dodeed:dodeed@localhost:5432/dodeed_test"
+ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
+
+@pytest.fixture(scope="session", autouse=True)
+def _migrate_test_db() -> None:
+    """테스트 DB를 최신 마이그레이션으로 맞춘다 (이벤트 루프 밖의 동기 fixture)."""
+    cfg = Config(str(ALEMBIC_INI))
+    cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
+    command.upgrade(cfg, "head")
+
+
+@pytest.fixture
+def user_id() -> uuid.UUID:
+    return uuid.uuid4()
 
 
 @pytest.fixture
