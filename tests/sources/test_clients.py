@@ -127,7 +127,7 @@ async def test_naver_web_no_postdate(respx_mock, http, settings):
     assert items[0].postdate is None and items[0].description == "영업시간 안내 <안내>"
 
 
-URL = "https://apis.data.go.kr/1741000/general_restaurants"
+URL = "https://apis.data.go.kr/1741000/general_restaurants/info"
 
 
 async def test_localdata_open_and_closed(respx_mock, http, settings):

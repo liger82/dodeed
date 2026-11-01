@@ -24,7 +24,7 @@ KAKAO_KEYWORD = "https://dapi.kakao.com/v2/local/search/keyword.json"
 KAKAO_REGION = "https://dapi.kakao.com/v2/local/geo/coord2regioncode.json"
 NAVER_BLOG = "https://openapi.naver.com/v1/search/blog.json"
 NAVER_WEB = "https://openapi.naver.com/v1/search/webkr.json"
-LOCALDATA = "https://apis.data.go.kr/1741000/general_restaurants"
+LOCALDATA = "https://apis.data.go.kr/1741000/general_restaurants/info"
 
 ORIGIN = (37.49794, 127.02761)
 

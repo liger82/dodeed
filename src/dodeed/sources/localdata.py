@@ -1,7 +1,9 @@
 """행정안전부 식품_일반음식점 조회서비스 (공공데이터포털, 15154916) 클라이언트.
 
-확인된 것: 엔드포인트, 요청 변수(serviceKey, pageNo, numOfRows, returnType,
-cond[BPLC_NM::LIKE], cond[ROAD_NM_ADDR::LIKE]).
+확인된 것: 오퍼레이션 경로 `/info`(현재 데이터 조회; `/history`는 기준일 이력 조회),
+요청 변수(serviceKey, pageNo, numOfRows, returnType, cond[BPLC_NM::LIKE],
+cond[ROAD_NM_ADDR::LIKE]). 키 없이 호출하면 `/info`는 401 SERVICE_KEY_IS_NULL,
+경로 없는 기본 URL은 NO_OPENAPI_SERVICE_ERROR를 돌려준다(2026-11-01 확인).
 미확인: 응답 필드명(문서에 없음). 아래 파싱은 알려진 표준 필드명을 쓰는 최선 추정이며,
 모양이 다르면 "unknown"으로 안전하게 실패한다.
 """
@@ -15,7 +17,7 @@ import httpx
 from dodeed.config import Settings
 from dodeed.sources import SourceUnavailable, get_json
 
-BASE_URL = "https://apis.data.go.kr/1741000/general_restaurants"
+BASE_URL = "https://apis.data.go.kr/1741000/general_restaurants/info"
 Status = Literal["open", "closed", "unknown"]
 
 
