@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from dodeed.app import create_app
 from dodeed.config import Settings
 from dodeed.db import get_db
+from dodeed.security.egress import SecretRegistry
 
 TEST_DATABASE_URL = "postgresql+asyncpg://dodeed:dodeed@localhost:5432/dodeed_test"
 ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
@@ -76,3 +77,8 @@ async def client(settings, db_session):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+@pytest.fixture
+def registry() -> SecretRegistry:
+    return SecretRegistry(b"test-hmac-key")
