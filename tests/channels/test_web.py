@@ -49,3 +49,23 @@ async def test_503_when_gateway_missing(client, signed_up_user_id):
     await client.post("/api/login", json={"email": "svc@example.com", "password": "pw-12345678"})
     r = await client.post("/api/chat", json={"text": "hi", "event_id": "e"})
     assert r.status_code == 503
+
+
+async def test_same_event_id_for_different_users_both_processed(
+    channel_client, orch, db_session, signed_up_user_id
+):
+    from dodeed.accounts.service import signup
+
+    await signup(db_session, "b@example.com", "pw-12345678", "비")
+    out = []
+    for email in ("svc@example.com", "b@example.com"):
+        channel_client.cookies.clear()
+        r = await channel_client.post(
+            "/api/login", json={"email": email, "password": "pw-12345678"}
+        )
+        assert r.status_code == 200
+        r = await channel_client.post("/api/chat", json={"text": "hi", "event_id": "1"})
+        out.append(r.json())
+    assert all(o == {"messages": [OutText(text="echo:hi").model_dump()]} for o in out)
+    assert len(orch.calls) == 2
+    assert orch.calls[0][0] != orch.calls[1][0]

@@ -65,7 +65,7 @@ class Gateway:
         now: datetime | None = None,
     ) -> list[Outbound]:
         now = now or datetime.now(UTC)
-        event_key = f"dodeed:event:{msg.channel}:{msg.event_id}"
+        event_key = f"dodeed:event:{msg.channel}:{msg.external_id}:{msg.event_id}"
         first = await self._redis.set(event_key, 1, nx=True, ex=EVENT_TTL)
         if not first:
             return []
