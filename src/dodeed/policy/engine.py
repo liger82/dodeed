@@ -93,7 +93,7 @@ class PolicyEngine:
             return PolicyResult(Decision.DENY, "읽기 전용 서비스입니다")
         if spec.is_payment and approval_token is None:
             return PolicyResult(Decision.NEEDS_APPROVAL, "결제는 항상 승인이 필요합니다")
-        if level == PermissionLevel.INSTANT and spec.instant_allowed:
+        if level == PermissionLevel.INSTANT and spec.instant_allowed and not spec.is_payment:
             return PolicyResult(Decision.ALLOW, "즉시 실행 허용")
         if approval_token is None:
             return PolicyResult(Decision.NEEDS_APPROVAL, "사용자 승인이 필요합니다")

@@ -64,9 +64,7 @@ async def test_write_tool_needs_approval_by_default(db_session, signed_up_user_i
     assert await check(db_session, signed_up_user_id, _spec("w")) == Decision.NEEDS_APPROVAL
 
 
-async def test_payment_needs_approval_even_when_instant(
-    db_session, signed_up_user_id, specs, reg
-):
+async def test_payment_needs_approval_even_when_instant(db_session, signed_up_user_id, specs, reg):
     await set_level(db_session, signed_up_user_id, "svc", PermissionLevel.INSTANT, reg)
     spec = _spec("pay", instant_allowed=True, is_payment=True)
     assert await check(db_session, signed_up_user_id, spec) == Decision.NEEDS_APPROVAL
@@ -87,9 +85,7 @@ async def test_approval_token_denied_until_service_exists(db_session, signed_up_
     assert result.reason == "승인 서비스 미구현"
 
 
-async def test_set_level_instant_requires_instant_allowed_tool(
-    db_session, signed_up_user_id
-):
+async def test_set_level_instant_requires_instant_allowed_tool(db_session, signed_up_user_id):
     with pytest.raises(ValueError):
         await set_level(
             db_session, signed_up_user_id, "svc", PermissionLevel.INSTANT, ToolRegistry()
@@ -118,3 +114,14 @@ async def test_registry(reg):
     defs = reg.tool_defs(["b", "w_instant"])
     assert [d.name for d in defs] == ["b", "w_instant"]
     assert defs[0].parameters == _In.model_json_schema()
+
+
+async def test_payment_with_token_denied_at_instant(db_session, signed_up_user_id, specs, reg):
+    await set_level(db_session, signed_up_user_id, "svc", PermissionLevel.INSTANT, reg)
+    spec = _spec("pay", instant_allowed=True, is_payment=True)
+    assert await check(db_session, signed_up_user_id, spec, "tok") == Decision.DENY
+
+
+async def test_payment_with_token_denied_at_approve(db_session, signed_up_user_id, specs):
+    spec = _spec("pay", is_payment=True)
+    assert await check(db_session, signed_up_user_id, spec, "tok") == Decision.DENY
