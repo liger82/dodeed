@@ -9,7 +9,8 @@ from dodeed.db import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # 같은 프로세스에서 이미 만들어진 앱 로거(dodeed.*)를 끄지 않는다
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
