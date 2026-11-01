@@ -1,0 +1,5 @@
+{"meta":{"same_name":{"region":[],"keyword":"강남역 맛집","selected_region":""},"pageable_count":2,"total_count":2,"is_end":true},
+"documents":[
+{"place_name":"을지식당","distance":"120","place_url":"http://place.map.kakao.com/1001","category_name":"음식점 > 한식 > 국밥","address_name":"서울 강남구 역삼동 1-1","road_address_name":"서울 강남구 테헤란로 1","id":"1001","phone":"02-111-2222","category_group_code":"FD6","category_group_name":"음식점","x":"127.0276","y":"37.4979"},
+{"place_name":"골목집","distance":"340","place_url":"http://place.map.kakao.com/1002","category_name":"음식점 > 한식","address_name":"서울 강남구 역삼동 2-2","road_address_name":"","id":"1002","phone":"","category_group_code":"FD6","category_group_name":"음식점","x":"127.0266","y":"37.5009"}
+]}
