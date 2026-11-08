@@ -98,7 +98,12 @@ def _parse_response(data: Any) -> LLMResponse:
         if not isinstance(name, str):
             raise _bad_output()
         tool_calls.append(
-            ToolCall(id=call_id, name=name, arguments=_parse_arguments(fn.get("arguments")))
+            ToolCall(
+                id=call_id,
+                name=name,
+                arguments=_parse_arguments(fn.get("arguments")),
+                provider=PROVIDER,
+            )
         )
 
     return LLMResponse(text=content or None, tool_calls=tool_calls)

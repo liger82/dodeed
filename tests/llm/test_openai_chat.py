@@ -150,9 +150,10 @@ async def test_parses_text_and_tool_calls(respx_mock, client):
     resp = await client.complete([Message(role="user", content="x")])
     assert resp.text is None
     assert resp.tool_calls == [
-        ToolCall(id="call_a", name="search", arguments={"q": "역삼"}),
-        ToolCall(id="call_b", name="now", arguments={}),
+        ToolCall(id="call_a", name="search", arguments={"q": "역삼"}, provider="openai"),
+        ToolCall(id="call_b", name="now", arguments={}, provider="openai"),
     ]
+    assert all(tc.thought_signature is None for tc in resp.tool_calls)
 
 
 async def test_parses_plain_text(respx_mock, client):

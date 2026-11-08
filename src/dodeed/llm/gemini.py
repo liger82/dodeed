@@ -10,6 +10,7 @@ REST 필드 확인 (2026-11-08, Google 공식 문서 aistudio.google.com/api-ref
 - Content `{role: "user"|"model", parts}`, Part `text` / `functionCall {name, args, id}` /
   `functionResponse {name, response, id}`. Gemini 3는 functionCall마다 `id`를 준다고
   문서에 있으므로 응답의 id가 있으면 그대로 쓰고, 없을 때만 `gemini-<hex12>`를 만든다.
+  (R6/R7 반영: 2026-11-08)
   functionResponse는 role "user"로 보낸다.
 - Tool `functionDeclarations[{name, description, parametersJsonSchema}]`:
   `parametersJsonSchema`는 JSON Schema 객체를 그대로 받는다 (`parameters`와 함께 쓰지 않는다).
@@ -18,9 +19,12 @@ REST 필드 확인 (2026-11-08, Google 공식 문서 aistudio.google.com/api-ref
   보여 준다. 문서가 둘을 같은 설정으로 설명하므로 계획대로 `responseJsonSchema`를 쓴다.
 - 응답 `candidates[0].content.parts`, `candidates[0].finishReason`, `promptFeedback.blockReason`.
 - 사고 서명: Gemini 3는 현재 턴의 각 단계 첫 functionCall 파트에 `thoughtSignature`가
-  없으면 400을 준다. 우리 타입은 서명을 보관하지 않고 기록이 다른 모델(1차 OpenAI)에서
-  올 수도 있으므로, 문서가 API가 만들지 않은 함수 호출용으로 안내하는 값
-  `skip_thought_signature_validator`를 넣는다 (문서는 품질이 떨어질 수 있다고 경고한다).
+  없으면 400을 준다. 응답 파트의 `thoughtSignature`를 `ToolCall.thought_signature`에 담아
+  다음 요청에서 그대로 돌려보낸다. 서명이 없는 호출(1차 OpenAI가 만든 호출 등)로 시작하는
+  턴에는 문서가 API가 만들지 않은 함수 호출용으로 안내하는 `skip_thought_signature_validator`를
+  첫 파트에만 넣는다 (문서는 품질이 떨어질 수 있다고 경고한다).
+- 호출 id: `provider == "gemini"`인 호출만 functionCall/functionResponse에 `id`를 넣는다.
+  다른 공급자의 id는 보내지 않고 이름으로 짝을 맞춘다.
 """
 
 import json
@@ -42,12 +46,20 @@ logger = logging.getLogger(__name__)
 
 
 def _function_call_parts(calls: list[ToolCall]) -> list[dict[str, Any]]:
+    """assistant 한 턴(단계)의 functionCall 파트들.
+
+    Gemini가 만든 호출은 id와 실제 사고 서명을 그대로 돌려보낸다. 서명 없이 시작하는 턴
+    (다른 공급자가 만든 호출)은 첫 파트에만 문서의 대체값을 넣는다 (병렬 호출은 첫 파트만 서명).
+    """
     parts: list[dict[str, Any]] = []
     for i, tc in enumerate(calls):
-        part: dict[str, Any] = {
-            "functionCall": {"name": tc.name, "args": tc.arguments, "id": tc.id}
-        }
-        if i == 0:  # 병렬 호출은 첫 파트에만 서명이 붙는다
+        call: dict[str, Any] = {"name": tc.name, "args": tc.arguments}
+        if tc.provider == PROVIDER:
+            call["id"] = tc.id
+        part: dict[str, Any] = {"functionCall": call}
+        if tc.thought_signature:
+            part["thoughtSignature"] = tc.thought_signature
+        elif i == 0:
             part["thoughtSignature"] = DUMMY_THOUGHT_SIGNATURE
         parts.append(part)
     return parts
@@ -65,32 +77,27 @@ def _to_contents(messages: list[Message]) -> tuple[list[str], list[dict[str, Any
     """(system 텍스트들, contents). 순서를 지키고 연속된 같은 role은 하나로 합친다."""
     system: list[str] = []
     contents: list[dict[str, Any]] = []
-    call_names: dict[str, str] = {}
+    calls_by_id: dict[str, ToolCall] = {}
 
     for m in messages:
         if m.role == "system":
             system.append(m.content)
             continue
         if m.role == "tool":
-            name = call_names.get(m.tool_call_id or "")
-            if name is None:
+            call = calls_by_id.get(m.tool_call_id or "")
+            if call is None:
                 logger.warning("gemini request rejected: unknown tool_call_id")
                 raise LLMRequestError(PROVIDER, 400)
             role = "user"
-            parts: list[dict[str, Any]] = [
-                {
-                    "functionResponse": {
-                        "name": name,
-                        "response": _tool_response(m.content),
-                        "id": m.tool_call_id,
-                    }
-                }
-            ]
+            response: dict[str, Any] = {"name": call.name, "response": _tool_response(m.content)}
+            if call.provider == PROVIDER:
+                response["id"] = call.id
+            parts: list[dict[str, Any]] = [{"functionResponse": response}]
         elif m.role == "assistant" and m.tool_calls:
             role = "model"
             parts = [{"text": m.content}] if m.content else []
             parts += _function_call_parts(m.tool_calls)
-            call_names.update({tc.id: tc.name for tc in m.tool_calls})
+            calls_by_id.update({tc.id: tc for tc in m.tool_calls})
         else:
             role = "model" if m.role == "assistant" else "user"
             parts = [{"text": m.content}]
@@ -110,7 +117,8 @@ def _bad_output(status: int | None = 200) -> LLMProviderError:
     return LLMProviderError(PROVIDER, "bad_output", status)
 
 
-def _parse_function_call(fc: Any) -> ToolCall:
+def _parse_function_call(part: dict) -> ToolCall:
+    fc = part["functionCall"]
     if not isinstance(fc, dict):
         raise _bad_output()
     name = fc.get("name")
@@ -122,7 +130,12 @@ def _parse_function_call(fc: Any) -> ToolCall:
     call_id = fc.get("id")
     if not isinstance(call_id, str) or not call_id:
         call_id = f"gemini-{uuid4().hex[:12]}"
-    return ToolCall(id=call_id, name=name, arguments=args)
+    signature = part.get("thoughtSignature")
+    if not isinstance(signature, str) or not signature:
+        signature = None
+    return ToolCall(
+        id=call_id, name=name, arguments=args, provider=PROVIDER, thought_signature=signature
+    )
 
 
 def _parse_response(data: Any) -> LLMResponse:
@@ -152,7 +165,7 @@ def _parse_response(data: Any) -> LLMResponse:
         if not isinstance(part, dict):
             raise _bad_output()
         if "functionCall" in part:
-            tool_calls.append(_parse_function_call(part["functionCall"]))
+            tool_calls.append(_parse_function_call(part))
         elif "text" in part:
             text = part["text"]
             if not isinstance(text, str):

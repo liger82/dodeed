@@ -9,6 +9,8 @@ class ToolCall:
     id: str
     name: str
     arguments: dict
+    provider: str | None = None  # 이 호출을 만든 공급자 ("openai", "gemini"). 직접 만든 호출은 None
+    thought_signature: str | None = None  # Gemini가 준 불투명한 사고 서명. 그대로 돌려보낸다
 
 
 @dataclass

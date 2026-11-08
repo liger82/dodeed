@@ -127,10 +127,10 @@ async def test_tool_result_mapped_to_function_name_by_call_id(respx_mock, client
         "parts": [
             {"text": "찾아볼게요"},
             {
-                "functionCall": {"name": "search", "args": {"q": "강남"}, "id": "call_abc"},
+                "functionCall": {"name": "search", "args": {"q": "강남"}},
                 "thoughtSignature": DUMMY_THOUGHT_SIGNATURE,
             },
-            {"functionCall": {"name": "now", "args": {}, "id": "call_def"}},
+            {"functionCall": {"name": "now", "args": {}}},
         ],
     }
     # 연속된 tool 결과는 하나의 user content로 합친다
@@ -141,14 +141,12 @@ async def test_tool_result_mapped_to_function_name_by_call_id(respx_mock, client
                 "functionResponse": {
                     "name": "search",
                     "response": {"items": []},
-                    "id": "call_abc",
                 }
             },
             {
                 "functionResponse": {
                     "name": "now",
                     "response": {"result": "12:30"},
-                    "id": "call_def",
                 }
             },
         ],
@@ -169,11 +167,104 @@ async def test_non_object_tool_result_wrapped(respx_mock, client, content):
     # 내용 없는 assistant 턴에는 빈 텍스트 파트를 넣지 않는다
     assert contents[1]["parts"] == [
         {
-            "functionCall": {"name": "f", "args": {}, "id": "c1"},
+            "functionCall": {"name": "f", "args": {}},
             "thoughtSignature": DUMMY_THOUGHT_SIGNATURE,
         }
     ]
     assert contents[2]["parts"][0]["functionResponse"]["response"] == {"result": content}
+
+
+async def test_thought_signature_round_trips_to_next_request(respx_mock, client):
+    route = respx_mock.post(URL)
+    route.mock(
+        return_value=_ok(
+            [
+                {
+                    "functionCall": {"name": "search", "args": {"q": "역삼"}, "id": "g1"},
+                    "thoughtSignature": "REAL-SIG-1",
+                },
+                {"functionCall": {"name": "now", "args": {}, "id": "g2"}},
+            ]
+        )
+    )
+    history = [Message(role="user", content="역삼 맛집, 지금 몇 시?")]
+    first = await client.complete(history)
+
+    history.append(Message(role="assistant", content="", tool_calls=list(first.tool_calls)))
+    history.append(Message(role="tool", content='{"items": []}', tool_call_id="g1"))
+    history.append(Message(role="tool", content="12:30", tool_call_id="g2"))
+    route.mock(return_value=_ok([{"text": "끝"}]))
+    await client.complete(history)
+
+    contents = _sent(route)["contents"]
+    assert contents[1] == {
+        "role": "model",
+        "parts": [
+            {
+                "functionCall": {"name": "search", "args": {"q": "역삼"}, "id": "g1"},
+                "thoughtSignature": "REAL-SIG-1",
+            },
+            {"functionCall": {"name": "now", "args": {}, "id": "g2"}},
+        ],
+    }
+    assert contents[2]["parts"] == [
+        {"functionResponse": {"name": "search", "response": {"items": []}, "id": "g1"}},
+        {"functionResponse": {"name": "now", "response": {"result": "12:30"}, "id": "g2"}},
+    ]
+    assert DUMMY_THOUGHT_SIGNATURE not in route.calls.last.request.content.decode()
+
+
+async def test_mixed_history_openai_call_has_no_id_and_placeholder(respx_mock, client):
+    route = respx_mock.post(URL).mock(return_value=_ok([{"text": "ok"}]))
+    messages = [
+        Message(role="user", content="강남 맛집"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(id="call_abc", name="search", arguments={"q": "강남"}, provider="openai")
+            ],
+        ),
+        Message(role="tool", content='{"items": [1]}', tool_call_id="call_abc"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(
+                    id="g9",
+                    name="now",
+                    arguments={},
+                    provider="gemini",
+                    thought_signature="REAL-SIG-9",
+                )
+            ],
+        ),
+        Message(role="tool", content="12:30", tool_call_id="g9"),
+    ]
+    await client.complete(messages)
+
+    contents = _sent(route)["contents"]
+    # OpenAI가 만든 호출: id 없음, 대체 서명
+    assert contents[1]["parts"] == [
+        {
+            "functionCall": {"name": "search", "args": {"q": "강남"}},
+            "thoughtSignature": DUMMY_THOUGHT_SIGNATURE,
+        }
+    ]
+    assert contents[2]["parts"] == [
+        {"functionResponse": {"name": "search", "response": {"items": [1]}}}
+    ]
+    assert "call_abc" not in route.calls.last.request.content.decode()
+    # Gemini가 만든 호출: id와 실제 서명을 그대로
+    assert contents[3]["parts"] == [
+        {
+            "functionCall": {"name": "now", "args": {}, "id": "g9"},
+            "thoughtSignature": "REAL-SIG-9",
+        }
+    ]
+    assert contents[4]["parts"] == [
+        {"functionResponse": {"name": "now", "response": {"result": "12:30"}, "id": "g9"}}
+    ]
 
 
 async def test_unknown_tool_call_id_raises_request_error(respx_mock, client):
@@ -205,6 +296,8 @@ async def test_function_call_parsed_with_generated_id(respx_mock, client):
         ("search", {"q": "역삼"}),
         ("now", {}),
     ]
+    assert all(tc.provider == "gemini" for tc in resp.tool_calls)
+    assert all(tc.thought_signature is None for tc in resp.tool_calls)
     ids = [tc.id for tc in resp.tool_calls]
     assert all(re.fullmatch(r"gemini-[0-9a-f]{12}", i) for i in ids)
     assert len(set(ids)) == 2
@@ -223,7 +316,16 @@ async def test_function_call_id_from_response_is_kept(respx_mock, client):
     )
     resp = await client.complete([Message(role="user", content="x")])
     assert resp == LLMResponse(
-        text=None, tool_calls=[ToolCall(id="abc123", name="search", arguments={})]
+        text=None,
+        tool_calls=[
+            ToolCall(
+                id="abc123",
+                name="search",
+                arguments={},
+                provider="gemini",
+                thought_signature="sig",
+            )
+        ],
     )
 
 

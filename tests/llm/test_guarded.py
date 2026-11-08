@@ -89,3 +89,17 @@ async def test_guarded_blocks_secret_in_message_tool_calls(registry, message):
 
 def test_message_tool_calls_default_none():
     assert Message("user", "x").tool_calls is None
+
+
+async def test_guarded_handles_tool_calls_with_provider_and_signature(registry):
+    registry.register(SECRET)
+    gemini_call = ToolCall("g1", "search", {"q": "맛집"}, provider="gemini", thought_signature="s")
+    history = [Message("user", "x"), Message("assistant", "", tool_calls=[gemini_call])]
+    resp = LLMResponse(None, [ToolCall("g2", "now", {}, provider="gemini", thought_signature="t")])
+    llm = GuardedLLM(FakeLLM([resp]), registry, "orchestrator")
+    assert await llm.complete(history) is resp
+
+    leaked = ToolCall("g3", "send", {"body": SECRET}, provider="gemini", thought_signature="u")
+    llm = GuardedLLM(FakeLLM([LLMResponse(None, [leaked])]), registry, "orchestrator")
+    with pytest.raises(EgressBlocked):
+        await llm.complete(history)
