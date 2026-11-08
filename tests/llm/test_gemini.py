@@ -466,3 +466,62 @@ async def test_errors_do_not_contain_api_key(respx_mock, client, caplog):
         assert ei.value.__cause__ is None
         assert ei.value.__context__ is None or ei.value.__suppress_context__
     assert API_KEY not in caplog.text
+
+
+async def test_last_usage_parsed_after_success(respx_mock, client):
+    assert client.last_usage is None
+    respx_mock.post(URL).mock(
+        return_value=_ok(
+            [{"text": "안녕"}],
+            usageMetadata={
+                "promptTokenCount": 30,
+                "candidatesTokenCount": 5,
+                "totalTokenCount": 35,
+            },
+        )
+    )
+    await client.complete([Message(role="user", content="x")])
+    assert client.last_usage == {"input_tokens": 30, "output_tokens": 5}
+
+
+async def test_last_usage_counts_thinking_tokens_as_output(respx_mock, client):
+    respx_mock.post(URL).mock(
+        return_value=_ok(
+            [{"text": "안녕"}],
+            usageMetadata={
+                "promptTokenCount": 30,
+                "candidatesTokenCount": 5,
+                "thoughtsTokenCount": 20,
+            },
+        )
+    )
+    await client.complete([Message(role="user", content="x")])
+    assert client.last_usage == {"input_tokens": 30, "output_tokens": 25}
+
+
+async def test_last_usage_without_candidates_count(respx_mock, client):
+    # 차단 등으로 출력이 없으면 candidatesTokenCount가 빠질 수 있다
+    respx_mock.post(URL).mock(
+        return_value=_ok([{"text": "ok"}], usageMetadata={"promptTokenCount": 9})
+    )
+    await client.complete([Message(role="user", content="x")])
+    assert client.last_usage == {"input_tokens": 9, "output_tokens": 0}
+
+
+@pytest.mark.parametrize("usage", [None, "x", {}, {"promptTokenCount": "9"}])
+async def test_last_usage_none_when_missing_or_malformed(respx_mock, client, usage):
+    extra = {} if usage is None else {"usageMetadata": usage}
+    respx_mock.post(URL).mock(return_value=_ok([{"text": "ok"}], **extra))
+    resp = await client.complete([Message(role="user", content="x")])
+    assert resp.text == "ok"
+    assert client.last_usage is None
+
+
+async def test_last_usage_reset_on_failure(respx_mock, client):
+    route = respx_mock.post(URL)
+    route.mock(return_value=_ok([{"text": "ok"}], usageMetadata={"promptTokenCount": 1}))
+    await client.complete([Message(role="user", content="x")])
+    route.mock(return_value=httpx.Response(503))
+    with pytest.raises(LLMProviderError):
+        await client.complete([Message(role="user", content="x")])
+    assert client.last_usage is None

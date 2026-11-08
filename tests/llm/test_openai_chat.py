@@ -302,3 +302,49 @@ async def test_reasoning_effort_only_when_set(respx_mock, http):
     )
     await tuned.complete([Message(role="user", content="x")])
     assert _sent(route)["reasoning_effort"] == "low"
+
+
+async def test_last_usage_parsed_after_success(respx_mock, client):
+    assert client.last_usage is None
+    respx_mock.post(BASE_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "안녕"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
+            },
+        )
+    )
+    await client.complete([Message(role="user", content="x")])
+    assert client.last_usage == {"input_tokens": 12, "output_tokens": 7}
+
+
+@pytest.mark.parametrize(
+    "usage", [None, "x", {}, {"prompt_tokens": "1", "completion_tokens": 2}, {"prompt_tokens": 1}]
+)
+async def test_last_usage_none_when_missing_or_malformed(respx_mock, client, usage):
+    payload: dict = {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
+    if usage is not None:
+        payload["usage"] = usage
+    respx_mock.post(BASE_URL).mock(return_value=httpx.Response(200, json=payload))
+    resp = await client.complete([Message(role="user", content="x")])
+    assert resp.text == "ok"
+    assert client.last_usage is None
+
+
+async def test_last_usage_reset_on_failure(respx_mock, client):
+    route = respx_mock.post(BASE_URL)
+    route.mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+    )
+    await client.complete([Message(role="user", content="x")])
+    route.mock(return_value=httpx.Response(500))
+    with pytest.raises(LLMProviderError):
+        await client.complete([Message(role="user", content="x")])
+    assert client.last_usage is None

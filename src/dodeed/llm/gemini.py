@@ -175,6 +175,27 @@ def _parse_response(data: Any) -> LLMResponse:
     return LLMResponse(text="".join(texts) or None, tool_calls=tool_calls)
 
 
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _parse_usage(data: Any) -> dict[str, int] | None:
+    """`usageMetadata` → {"input_tokens", "output_tokens"}. 없으면 None.
+
+    사고 토큰(`thoughtsTokenCount`)도 출력 단가로 청구되므로 출력에 더한다.
+    출력이 없으면 `candidatesTokenCount`가 빠질 수 있어 0으로 본다.
+    """
+    meta = data.get("usageMetadata") if isinstance(data, dict) else None
+    if not isinstance(meta, dict):
+        return None
+    inp = _count(meta.get("promptTokenCount"))
+    out = _count(meta.get("candidatesTokenCount", 0))
+    thoughts = _count(meta.get("thoughtsTokenCount", 0))
+    if inp is None or out is None or thoughts is None:
+        return None
+    return {"input_tokens": inp, "output_tokens": out + thoughts}
+
+
 class GeminiClient:
     """앱의 공유 httpx 클라이언트를 쓴다 (여기서 닫지 않는다)."""
 
@@ -183,6 +204,8 @@ class GeminiClient:
         self._api_key = api_key
         self._model = model
         self._timeout_s = timeout_s
+        # 마지막 성공 호출의 토큰 사용량 (품질 비교 스크립트용). 실패하거나 없으면 None
+        self.last_usage: dict[str, int] | None = None
 
     @property
     def _url(self) -> str:
@@ -213,6 +236,7 @@ class GeminiClient:
         tools: list[ToolDef] | None = None,
         json_schema: dict | None = None,
     ) -> LLMResponse:
+        self.last_usage = None
         body = self._build_body(messages, tools, json_schema)
         try:
             resp = await self._http.post(
@@ -234,7 +258,9 @@ class GeminiClient:
         except ValueError:
             data = None
         try:
-            return _parse_response(data)
+            result = _parse_response(data)
         except LLMProviderError:
             logger.warning("gemini bad_output: status=%d", status)
             raise
+        self.last_usage = _parse_usage(data)
+        return result

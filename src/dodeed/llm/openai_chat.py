@@ -109,6 +109,24 @@ def _parse_response(data: Any) -> LLMResponse:
     return LLMResponse(text=content or None, tool_calls=tool_calls)
 
 
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _parse_usage(data: Any) -> dict[str, int] | None:
+    """`usage.prompt_tokens/completion_tokens` → {"input_tokens", "output_tokens"}. 없으면 None.
+
+    completion_tokens에는 추론 토큰이 이미 들어 있다.
+    """
+    usage = data.get("usage") if isinstance(data, dict) else None
+    if not isinstance(usage, dict):
+        return None
+    inp, out = _count(usage.get("prompt_tokens")), _count(usage.get("completion_tokens"))
+    if inp is None or out is None:
+        return None
+    return {"input_tokens": inp, "output_tokens": out}
+
+
 class OpenAIChatClient:
     """앱의 공유 httpx 클라이언트를 쓴다 (여기서 닫지 않는다)."""
 
@@ -125,6 +143,8 @@ class OpenAIChatClient:
         self._model = model
         self._timeout_s = timeout_s
         self._reasoning_effort = reasoning_effort
+        # 마지막 성공 호출의 토큰 사용량 (품질 비교 스크립트용). 실패하거나 없으면 None
+        self.last_usage: dict[str, int] | None = None
 
     def _build_body(
         self,
@@ -154,6 +174,7 @@ class OpenAIChatClient:
         tools: list[ToolDef] | None = None,
         json_schema: dict | None = None,
     ) -> LLMResponse:
+        self.last_usage = None
         body = self._build_body(messages, tools, json_schema)
         try:
             resp = await self._http.post(
@@ -175,7 +196,9 @@ class OpenAIChatClient:
         except ValueError:
             data = None
         try:
-            return _parse_response(data)
+            result = _parse_response(data)
         except LLMProviderError:
             logger.warning("openai bad_output: status=%d", status)
             raise
+        self.last_usage = _parse_usage(data)
+        return result

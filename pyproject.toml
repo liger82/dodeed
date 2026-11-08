@@ -36,11 +36,14 @@ packages = ["src/dodeed"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+# live: 실제 API 키로 외부 LLM을 부르는 테스트. 기본 실행에서 빼고 `uv run pytest -m live`로만 돌린다
+markers = ["live: 실제 API 키로 외부 LLM을 부르는 테스트 (uv run pytest -m live)"]
+addopts = '-m "not live"'
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
