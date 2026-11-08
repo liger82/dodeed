@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from dodeed.accounts.service import issue_link_code
@@ -87,9 +89,10 @@ async def test_duplicate_update_processed_once(channel_client, fake_bot, orch, d
 
 
 async def test_linked_user_reply_goes_to_chat(
-    channel_client, fake_bot, orch, db_session, signed_up_user_id, now
+    channel_client, fake_bot, orch, db_session, signed_up_user_id
 ):
-    code = await issue_link_code(db_session, signed_up_user_id, now)
+    # 웹훅 경로는 실제 시계로 코드를 확인하므로 발급도 실제 시계로 한다
+    code = await issue_link_code(db_session, signed_up_user_id, datetime.now(UTC))
     await channel_client.post("/telegram/webhook", json=tg_text(1, f"/link {code}"), headers=HDR)
     await channel_client.post("/telegram/webhook", json=tg_text(2, "맛집"), headers=HDR)
     assert fake_bot.calls[-1][1]["chat_id"] == 42
@@ -97,9 +100,10 @@ async def test_linked_user_reply_goes_to_chat(
 
 
 async def test_callback_is_answered_and_replied_to_message_chat(
-    channel_client, fake_bot, orch, db_session, signed_up_user_id, now
+    channel_client, fake_bot, orch, db_session, signed_up_user_id
 ):
-    code = await issue_link_code(db_session, signed_up_user_id, now)
+    # 웹훅 경로는 실제 시계로 코드를 확인하므로 발급도 실제 시계로 한다
+    code = await issue_link_code(db_session, signed_up_user_id, datetime.now(UTC))
     await channel_client.post("/telegram/webhook", json=tg_text(1, f"/link {code}"), headers=HDR)
     cb = {
         "update_id": 2,
