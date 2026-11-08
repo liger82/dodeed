@@ -6,9 +6,12 @@ import redis.asyncio as aioredis
 from aiogram import Bot
 from aiogram.client.session.aiohttp import AiohttpSession
 
-from dodeed.app import create_app
+from dodeed.app import _make_llm, create_app
 from dodeed.channels.gateway import Gateway
-from dodeed.llm.static import STATIC_TEXT
+from dodeed.llm.fallback import FallbackLLM
+from dodeed.llm.gemini import GeminiClient
+from dodeed.llm.openai_chat import OpenAIChatClient
+from dodeed.llm.static import STATIC_TEXT, StaticLLM
 from dodeed.sources.public_page import PublicPageReader
 
 
@@ -29,6 +32,30 @@ def test_default_wiring_builds_gateway_and_bot(settings):
 
 def test_llm_setting_defaults_to_fake(settings):
     assert settings.llm == "fake"
+
+
+def test_make_llm_fake_is_static(settings):
+    assert isinstance(_make_llm(settings, httpx.AsyncClient()), StaticLLM)
+
+
+def test_make_llm_live_builds_fallback(settings):
+    live = settings.model_copy(
+        update={
+            "llm": "live",
+            "openai_api_key": "sk-test-1234567890",
+            "gemini_api_key": "AIza-test-1234567890",
+        }
+    )
+    http = httpx.AsyncClient()
+    llm = _make_llm(live, http)
+    assert isinstance(llm, FallbackLLM)
+    assert isinstance(llm.primary, OpenAIChatClient)
+    assert isinstance(llm.backup, GeminiClient)
+    assert (llm.primary_name, llm.backup_name) == ("openai", "gemini")
+    # 공급자 클라이언트는 앱의 공유 httpx 클라이언트를 쓴다
+    assert llm.primary._http is http and llm.backup._http is http
+    assert llm.primary._model == "gpt-6-luna"
+    assert llm.backup._model == "gemini-3.5-flash-lite"
 
 
 async def test_default_wiring_answers_with_static_llm(client, signed_up_user_id):

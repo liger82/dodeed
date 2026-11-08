@@ -14,7 +14,10 @@ from dodeed.channels.telegram import router as telegram_router
 from dodeed.channels.web import router as web_router
 from dodeed.config import Settings, get_settings
 from dodeed.llm.base import LLMClient
+from dodeed.llm.fallback import FallbackLLM
+from dodeed.llm.gemini import GeminiClient
 from dodeed.llm.guarded import GuardedLLM
+from dodeed.llm.openai_chat import OpenAIChatClient
 from dodeed.llm.static import StaticLLM
 from dodeed.policy.engine import PolicyEngine
 from dodeed.policy.tools import ToolRegistry
@@ -35,9 +38,28 @@ def _quiet_http_logs() -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
-def _make_llm(settings: Settings) -> LLMClient:
+def _make_llm(settings: Settings, http: httpx.AsyncClient) -> LLMClient:
+    """fake는 고정 응답, live는 1차 OpenAI + 백업 Gemini (앱의 공유 httpx 클라이언트 사용)."""
     if settings.llm == "fake":
         return StaticLLM()
+    if settings.llm == "live":
+        # 설정 검증(_live_needs_both_keys)이 live일 때 두 키를 보장한다
+        if settings.openai_api_key is None or settings.gemini_api_key is None:
+            raise ValueError("llm=live에는 두 API 키가 필요합니다")  # pragma: no cover
+        primary = OpenAIChatClient(
+            http,
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            timeout_s=settings.llm_timeout_s,
+            reasoning_effort=settings.openai_reasoning_effort,
+        )
+        backup = GeminiClient(
+            http,
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            timeout_s=settings.llm_timeout_s,
+        )
+        return FallbackLLM(primary, backup, "openai", "gemini")
     raise ValueError(f"알 수 없는 LLM 설정: {settings.llm}")  # pragma: no cover
 
 
@@ -84,7 +106,7 @@ def create_app(
         http = httpx.AsyncClient()
         page_reader = PublicPageReader()
         redis = aioredis.from_url(settings.redis_url)
-        llm = _make_llm(settings)
+        llm = _make_llm(settings, http)  # 오케스트레이터와 리더가 같은 인스턴스를 쓴다
         orchestrator = build_orchestrator(
             settings, http=http, page_reader=page_reader, orchestrator_llm=llm, reader_llm=llm
         )

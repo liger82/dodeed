@@ -93,6 +93,6 @@ docker compose exec postgres psql -U dodeed -c "CREATE DATABASE dodeed_test;"
 
 ## 현재 한계
 
-- `DODEED_LLM=fake`일 때는 모든 답이 `StaticLLM`의 고정 응답입니다. `live` 설정은 들어갔지만 공급자 클라이언트 연결은 아직 진행 중입니다.
+- `DODEED_LLM=fake`일 때는 모든 답이 `StaticLLM`의 고정 응답입니다. `DODEED_LLM=live`는 `DODEED_OPENAI_API_KEY`와 `DODEED_GEMINI_API_KEY`가 모두 있어야 시작하며, 1차 `gpt-6-luna`가 시간 초과·429·5xx·연결 오류·응답 형식 오류를 내면 백업 `gemini-3.5-flash-lite`로 한 번 전환합니다. 둘 다 실패하면 "잠시 후 다시 시도해 주세요" 안내로 끝납니다. 실제 키로 두 공급자를 호출하는 확인은 자동 테스트에 없습니다(respx로만 검증).
 - LOCALDATA(일반음식점 인허가) 응답의 필드명은 문서에 없어 추정으로 파싱합니다. 실제 키로 응답 형식을 확인해야 하며, 형식이 다르면 인허가상 영업·폐업 상태를 "알 수 없음"으로 처리합니다.
 - 예약과 결제는 계획 3에서 다룹니다.
