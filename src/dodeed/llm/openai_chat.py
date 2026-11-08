@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from dodeed.llm.errors import LLMProviderError, LLMRequestError, ProviderErrorKind
+from dodeed.llm.errors import LLMProviderError, status_error, transport_error
 from dodeed.llm.types import LLMResponse, Message, ToolCall, ToolDef
 
 BASE_URL = "https://api.openai.com/v1/chat/completions"
@@ -157,19 +157,13 @@ class OpenAIChatClient:
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 timeout=self._timeout_s,
             )
-        except httpx.TimeoutException as exc:
-            raise self._transport_error("timeout", exc) from None
         except httpx.TransportError as exc:
-            raise self._transport_error("connection", exc) from None
+            raise transport_error(PROVIDER, exc) from None
 
         status = resp.status_code
-        if status == 429:
-            raise self._status_error("rate_limited", status)
-        if status >= 500:
-            raise self._status_error("server_error", status)
-        if status >= 400:
-            logger.warning("openai request rejected: status=%d", status)
-            raise LLMRequestError(PROVIDER, status)
+        error = status_error(PROVIDER, status)
+        if error is not None:
+            raise error
 
         try:
             data = resp.json()
@@ -180,13 +174,3 @@ class OpenAIChatClient:
         except LLMProviderError:
             logger.warning("openai bad_output: status=%d", status)
             raise
-
-    @staticmethod
-    def _transport_error(kind: ProviderErrorKind, exc: Exception) -> LLMProviderError:
-        logger.warning("openai %s: %s", kind, type(exc).__name__)
-        return LLMProviderError(PROVIDER, kind)
-
-    @staticmethod
-    def _status_error(kind: ProviderErrorKind, status: int) -> LLMProviderError:
-        logger.warning("openai %s: status=%d", kind, status)
-        return LLMProviderError(PROVIDER, kind, status)
