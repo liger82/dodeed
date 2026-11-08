@@ -132,3 +132,20 @@ def test_secret_inside_long_korean_text_found(registry):
 def test_secret_with_whitespace_rejected(registry, secret):
     with pytest.raises(ValueError):
         registry.register(secret)
+
+
+def test_llm_keys_registered_as_secrets(settings: Settings):
+    openai_key = "test-openai-key-123"
+    gemini_key = "test-gemini-key-456"
+    live = settings.model_copy(
+        update={"llm": "live", "openai_api_key": openai_key, "gemini_api_key": gemini_key}
+    )
+    reg = registry_from_settings(live)
+    assert reg.contains_in(f"x={openai_key}") is True
+    assert reg.contains_in(f"x={gemini_key}") is True
+
+
+def test_registry_from_settings_without_llm_keys(settings: Settings):
+    assert settings.openai_api_key is None
+    reg = registry_from_settings(settings)
+    assert reg.contains_in("x=test-openai-key-123") is False

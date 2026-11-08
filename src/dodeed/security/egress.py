@@ -85,4 +85,7 @@ def registry_from_settings(settings: "Settings") -> SecretRegistry:
         settings.secret_hmac_key,
     ):
         registry.register(value)
+    for optional in (settings.openai_api_key, settings.gemini_api_key):
+        if optional is not None:
+            registry.register(optional)
     return registry

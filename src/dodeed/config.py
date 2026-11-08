@@ -1,7 +1,7 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,8 +22,29 @@ class Settings(BaseSettings):
     localdata_api_key: str = Field(min_length=8)
     # 세션 쿠키 서명과 비밀값 지문에 쓰는 키
     secret_hmac_key: str = Field(min_length=32)
-    # 실제 모델 연결 전까지는 고정 응답 LLM만 쓴다. 기본값이 있는 유일한 설정이다.
-    llm: Literal["fake"] = "fake"
+    # fake는 고정 응답 LLM(StaticLLM), live는 1차 OpenAI + 백업 Gemini.
+    # 아래 LLM 설정은 모두 기본값이 있다. live일 때만 두 API 키가 필요하다.
+    llm: Literal["fake", "live"] = "fake"
+    openai_api_key: str | None = Field(default=None, min_length=8)
+    # Gemini API 결제 등급 키만 쓴다
+    gemini_api_key: str | None = Field(default=None, min_length=8)
+    openai_model: str = "gpt-6-luna"
+    gemini_model: str = "gemini-3.5-flash-lite"
+    llm_timeout_s: float = 60.0
+    # None이면 요청에 reasoning_effort를 넣지 않는다
+    openai_reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
+
+    @field_validator("openai_api_key", "gemini_api_key", mode="before")
+    @classmethod
+    def _empty_key_is_unset(cls, value: object) -> object:
+        # .env.example처럼 빈 값으로 둔 키는 없는 것으로 본다 (fake로 시작할 수 있게)
+        return None if value == "" else value
+
+    @model_validator(mode="after")
+    def _live_needs_both_keys(self) -> Self:
+        if self.llm == "live" and (self.openai_api_key is None or self.gemini_api_key is None):
+            raise ValueError("llm=live에는 openai_api_key와 gemini_api_key가 모두 필요합니다")
+        return self
 
 
 @lru_cache

@@ -32,7 +32,9 @@ cp .env.example .env
 | `DODEED_NAVER_CLIENT_SECRET` | 위 애플리케이션의 Client Secret (8자 이상) |
 | `DODEED_LOCALDATA_API_KEY` | [공공데이터포털](https://www.data.go.kr)에서 "행정안전부 식품_일반음식점 조회서비스"(일반음식점 인허가)를 활용 신청하면 받는 일반 인증키. **Decoding** 키를 넣으세요 (8자 이상) |
 | `DODEED_SECRET_HMAC_KEY` | 내부 HMAC 키(세션 쿠키 서명). 32자 이상의 임의 문자열이어야 합니다 |
-| `DODEED_LLM` | LLM 공급자. 지금은 `fake`만 됩니다 (기본값) |
+| `DODEED_LLM` | LLM 공급자. `fake`(고정 응답, 기본값) 또는 `live`(1차 OpenAI `gpt-6-luna`, 백업 Gemini `gemini-3.5-flash-lite`). `live`에는 아래 두 키가 모두 필요합니다 |
+| `DODEED_OPENAI_API_KEY` | [OpenAI 플랫폼](https://platform.openai.com)의 API 키 (8자 이상). `live`일 때 필수 |
+| `DODEED_GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com)의 Gemini API 키 (8자 이상). **결제 등급** 키를 넣으세요. `live`일 때 필수 |
 
 비밀값이 비어 있거나 위 조건에 맞지 않으면 서버가 시작되지 않습니다. 빈 웹훅 비밀값이나 짧은 HMAC 키는 누구나 다른 사용자로 위장할 수 있게 만들기 때문입니다.
 
@@ -54,7 +56,7 @@ uv run uvicorn dodeed.app:create_app --factory
 
 서버가 뜨면 `curl http://localhost:8000/health`가 `{"status":"ok"}`를 돌려줍니다.
 
-실제 LLM 공급자가 정해지기 전까지는 `DODEED_LLM=fake`로만 실행됩니다. 이때는 고정 응답 LLM(`StaticLLM`)이 답합니다.
+`DODEED_LLM=fake`(기본값)일 때는 고정 응답 LLM(`StaticLLM`)이 답합니다.
 
 ## 텔레그램 웹훅 등록
 
@@ -91,6 +93,6 @@ docker compose exec postgres psql -U dodeed -c "CREATE DATABASE dodeed_test;"
 
 ## 현재 한계
 
-- LLM 공급자가 아직 연결되지 않았습니다. 모든 답은 `StaticLLM`의 고정 응답입니다.
+- `DODEED_LLM=fake`일 때는 모든 답이 `StaticLLM`의 고정 응답입니다. `live` 설정은 들어갔지만 공급자 클라이언트 연결은 아직 진행 중입니다.
 - LOCALDATA(일반음식점 인허가) 응답의 필드명은 문서에 없어 추정으로 파싱합니다. 실제 키로 응답 형식을 확인해야 하며, 형식이 다르면 인허가상 영업·폐업 상태를 "알 수 없음"으로 처리합니다.
 - 예약과 결제는 계획 3에서 다룹니다.

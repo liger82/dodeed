@@ -62,3 +62,60 @@ def test_bad_webhook_secret_rejected(value):
 def test_short_api_secrets_rejected(field, value):
     with pytest.raises(ValidationError):
         _settings(**{field: value})
+
+
+OPENAI_KEY = "test-openai-key-123"
+GEMINI_KEY = "test-gemini-key-456"
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [{"openai_api_key": OPENAI_KEY}, {"gemini_api_key": GEMINI_KEY}, {}],
+)
+def test_live_requires_both_keys(keys):
+    with pytest.raises(ValidationError):
+        _settings(llm="live", **keys)
+
+
+def test_live_with_both_keys_ok():
+    s = _settings(llm="live", openai_api_key=OPENAI_KEY, gemini_api_key=GEMINI_KEY)
+    assert s.llm == "live"
+    assert s.openai_api_key == OPENAI_KEY
+    assert s.gemini_api_key == GEMINI_KEY
+
+
+def test_fake_needs_no_llm_keys():
+    s = _settings()
+    assert s.llm == "fake"
+    assert s.openai_api_key is None
+    assert s.gemini_api_key is None
+
+
+@pytest.mark.parametrize("field", ["openai_api_key", "gemini_api_key"])
+def test_llm_key_min_length(field):
+    with pytest.raises(ValidationError):
+        _settings(**{field: "1234567"})
+
+
+def test_model_names_default():
+    s = _settings()
+    assert s.openai_model == "gpt-6-luna"
+    assert s.gemini_model == "gemini-3.5-flash-lite"
+    assert s.llm_timeout_s == 60.0
+    assert s.openai_reasoning_effort is None
+
+
+def test_reasoning_effort_validated():
+    assert _settings(openai_reasoning_effort="low").openai_reasoning_effort == "low"
+    with pytest.raises(ValidationError):
+        _settings(openai_reasoning_effort="extreme")
+
+
+def test_empty_llm_keys_from_env_mean_unset(monkeypatch):
+    # .env.example은 두 키를 빈 값으로 둔다. 그대로 복사해도 fake로 시작돼야 한다.
+    for key, value in VALID.items():
+        monkeypatch.setenv(f"DODEED_{key.upper()}", value)
+    monkeypatch.setenv("DODEED_OPENAI_API_KEY", "")
+    monkeypatch.setenv("DODEED_GEMINI_API_KEY", "")
+    s = Settings(_env_file=None)
+    assert s.openai_api_key is None and s.gemini_api_key is None
