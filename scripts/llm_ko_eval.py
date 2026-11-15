@@ -112,6 +112,17 @@ def _norm(value: Any) -> str:
     return text.lower() if text.lower() in ("true", "false") else text
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _same(actual: Any, expected: Any) -> bool:
+    """숫자끼리는 값으로 비교한다 (Gemini는 4를 4.0으로 준다). 그 밖에는 _norm 문자열 비교."""
+    if _is_number(actual) and _is_number(expected):
+        return actual == expected
+    return _norm(actual) == _norm(expected)
+
+
 def score(case: Case, resp: LLMResponse) -> tuple[bool, bool]:
     """(도구 선택 일치, 인자 부분 일치). 도구를 기대하지 않으면 호출이 없어야 통과."""
     if case.tool is None:
@@ -121,7 +132,7 @@ def score(case: Case, resp: LLMResponse) -> tuple[bool, bool]:
     if call is None:
         return False, False
     args_ok = all(
-        key in call.arguments and _norm(call.arguments[key]) == _norm(expected)
+        key in call.arguments and _same(call.arguments[key], expected)
         for key, expected in case.args.items()
     )
     return True, args_ok

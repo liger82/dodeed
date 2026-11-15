@@ -127,6 +127,18 @@ def test_score_normalizes_types():
     )
 
 
+def test_score_integer_valued_floats_match_ints():
+    # Gemini는 정수 인자를 4.0처럼 실수로 돌려준다
+    case = ev.Case("x", "search_restaurants", {"party_size": 4, "price_max": 10000})
+    assert ev.score(case, _call(party_size=4.0, price_max=10000.0)) == (True, True)
+    assert ev.score(case, _call(party_size=4.5, price_max=10000)) == (True, False)
+
+
+def test_score_bool_is_not_number():
+    case = ev.Case("x", "search_restaurants", {"party_size": 1})
+    assert ev.score(case, _call(party_size=True)) == (True, False)
+
+
 def test_score_uses_matching_tool_call():
     case = ev.Case("x", "search_restaurants", {"cuisine": "국밥"})
     resp = LLMResponse(
