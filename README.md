@@ -33,8 +33,16 @@ cp .env.example .env
 | `DODEED_LOCALDATA_API_KEY` | [공공데이터포털](https://www.data.go.kr)에서 "행정안전부 식품_일반음식점 조회서비스"(일반음식점 인허가)를 활용 신청하면 받는 일반 인증키. **Decoding** 키를 넣으세요 (8자 이상) |
 | `DODEED_SECRET_HMAC_KEY` | 내부 HMAC 키(세션 쿠키 서명). 32자 이상의 임의 문자열이어야 합니다 |
 | `DODEED_LLM` | LLM 공급자. `fake`(고정 응답, 기본값) 또는 `live`(1차 OpenAI `gpt-6-luna`, 백업 Gemini `gemini-3.5-flash-lite`). `live`에는 아래 두 키가 모두 필요합니다 |
-| `DODEED_OPENAI_API_KEY` | [OpenAI 플랫폼](https://platform.openai.com)의 API 키 (8자 이상). `live`일 때 필수 |
-| `DODEED_GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com)의 Gemini API 키 (8자 이상). **결제 등급** 키를 넣으세요. `live`일 때 필수 |
+| `DODEED_OPENAI_API_KEY` | [OpenAI 플랫폼](https://platform.openai.com)의 API 키 (8자 이상). `live`일 때 필수. 접두사 없는 `OPENAI_API_KEY`도 받습니다 |
+| `DODEED_GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com)의 Gemini API 키 (8자 이상). **결제 등급** 키를 넣으세요. `live`일 때 필수. 접두사 없는 `GEMINI_API_KEY`도 받습니다 |
+| `DODEED_OPENAI_MODEL` | 1차 모델 이름. 기본값 `gpt-6-luna` |
+| `DODEED_GEMINI_MODEL` | 백업 모델 이름. 기본값 `gemini-3.5-flash-lite` |
+| `DODEED_LLM_TIMEOUT_S` | LLM 요청 하나의 시간 제한(초). 기본값 `30`. 1차 모델이 이 시간을 넘기면 백업으로 전환합니다 |
+| `DODEED_OPENAI_REASONING_EFFORT` | OpenAI `reasoning_effort` (`minimal`, `low`, `medium`, `high`). 비워 두면 요청에 넣지 않습니다 |
+
+LLM 키는 `DODEED_OPENAI_API_KEY`와 `OPENAI_API_KEY`(Gemini는 `DODEED_GEMINI_API_KEY`와 `GEMINI_API_KEY`)를 모두 받고, 둘 다 있으면 `DODEED_*`가 이깁니다. 셸에 `OPENAI_API_KEY`나 `GEMINI_API_KEY`가 이미 있으면 `DODEED_*`를 넣지 않아도 `live`에서 그 키를 씁니다(다른 프로젝트용 키로 요금이 나갈 수 있으니 확인하세요). 셸 환경변수는 `.env`보다 우선합니다. 키 앞뒤 공백은 지우고, 빈 값은 없는 것으로 봅니다.
+
+`.env`를 [dotenvx](https://dotenvx.com)로 암호화했다면 값이 `encrypted:`로 시작합니다. 이 상태로 그냥 실행하면 키 값을 보여 주지 않고 "dotenvx로 암호화된 값입니다" 오류로 멈추니, `dotenvx run -- <명령>`으로 실행하세요.
 
 비밀값이 비어 있거나 위 조건에 맞지 않으면 서버가 시작되지 않습니다. 빈 웹훅 비밀값이나 짧은 HMAC 키는 누구나 다른 사용자로 위장할 수 있게 만들기 때문입니다.
 
@@ -93,22 +101,28 @@ docker compose exec postgres psql -U dodeed -c "CREATE DATABASE dodeed_test;"
 
 ### 실제 키로 LLM 점검
 
-실제 OpenAI·Gemini API를 부르는 테스트에는 `live` 표시가 붙어 있고 기본 실행(`uv run pytest`)에서는 빠집니다. `.env`나 환경변수에 `DODEED_OPENAI_API_KEY`, `DODEED_GEMINI_API_KEY`를 넣고 따로 돌립니다. 키가 없는 공급자의 테스트는 건너뜁니다. 공급자마다 짧은 한국어 대화, `search_restaurants` 도구 호출, 구조화 출력(JSON)을 한 번씩 실제로 호출하므로 소액의 요금이 듭니다.
+실제 OpenAI·Gemini API를 부르는 테스트에는 `live` 표시가 붙어 있고 기본 실행(`uv run pytest`)에서는 빠집니다. `.env`나 환경변수에 `DODEED_OPENAI_API_KEY`, `DODEED_GEMINI_API_KEY`(또는 `OPENAI_API_KEY`, `GEMINI_API_KEY`)를 넣고 따로 돌립니다. 키가 없는 공급자의 테스트는 건너뜁니다. 공급자마다 짧은 한국어 대화, `search_restaurants` 도구 호출, 구조화 출력(JSON)을 한 번씩 실제로 호출하므로 소액의 요금이 듭니다.
 
 ```bash
 uv run pytest -m live
+# .env를 dotenvx로 암호화했다면
+dotenvx run -- uv run pytest -m live
 ```
+
+기본 테스트는 셸의 LLM 키 환경변수를 지우고 돌기 때문에 실제 키가 섞이지 않습니다.
 
 ### 한국어 품질 비교
 
-`scripts/llm_ko_eval_cases.json`의 한국어 사례 25개를 1차(`gpt-6-luna`)와 백업(`gemini-3.5-flash-lite`) 모델에 같은 시스템 프롬프트와 도구로 보내고, 모델별 도구 선택 정확도, 인자 일치율, 평균 지연 시간, 입출력 토큰 합계, 추정 비용을 마크다운 표로 씁니다. 키는 위와 같이 `.env`나 환경변수에서 읽고(모델 이름은 `DODEED_OPENAI_MODEL`, `DODEED_GEMINI_MODEL`로 바꿀 수 있습니다), 키가 있는 모델만 돌립니다. 보고서와 콘솔에는 키를 쓰지 않습니다. 단가는 스크립트의 `PRICES_PER_1M` 상수입니다.
+`scripts/llm_ko_eval_cases.json`의 한국어 사례 25개를 1차(`gpt-6-luna`)와 백업(`gemini-3.5-flash-lite`) 모델에 같은 시스템 프롬프트와 도구로 보내고, 모델별 도구 선택 정확도, 인자 일치율, 평균 지연 시간, 입출력 토큰 합계, 추정 비용을 마크다운 표로 씁니다. 키는 위와 같이 `.env`나 환경변수에서 읽고(접두사 없는 `OPENAI_API_KEY`, `GEMINI_API_KEY`도 받으며 `DODEED_*`가 이깁니다. 모델 이름은 `DODEED_OPENAI_MODEL`, `DODEED_GEMINI_MODEL`로 바꿀 수 있습니다), 키가 있는 모델만 돌립니다. 보고서와 콘솔에는 키를 쓰지 않습니다. 단가는 스크립트의 `PRICES_PER_1M` 상수입니다.
 
 ```bash
 uv run python scripts/llm_ko_eval.py --out docs/superpowers/eval/2026-11-ko-llm.md
+# .env를 dotenvx로 암호화했다면
+dotenvx run -- uv run python scripts/llm_ko_eval.py --out <경로>
 ```
 
 ## 현재 한계
 
-- `DODEED_LLM=fake`일 때는 모든 답이 `StaticLLM`의 고정 응답입니다. `DODEED_LLM=live`는 `DODEED_OPENAI_API_KEY`와 `DODEED_GEMINI_API_KEY`가 모두 있어야 시작하며, 1차 `gpt-6-luna`가 시간 초과·429·5xx·연결 오류·응답 형식 오류를 내면 백업 `gemini-3.5-flash-lite`로 한 번 전환합니다. 둘 다 실패하면 "잠시 후 다시 시도해 주세요" 안내로 끝납니다. 기본 테스트는 respx로만 검증하며, 실제 키로 두 공급자를 호출하는 확인은 `uv run pytest -m live`로 따로 돌립니다(아직 실제 키로 돌려 보지 않았습니다).
+- `DODEED_LLM=fake`일 때는 모든 답이 `StaticLLM`의 고정 응답입니다. `DODEED_LLM=live`는 OpenAI·Gemini 키(`DODEED_*` 또는 접두사 없는 이름)가 모두 있어야 시작하며, 1차 `gpt-6-luna`가 시간 초과·429·5xx·연결 오류·응답 형식 오류를 내면 백업 `gemini-3.5-flash-lite`로 한 번 전환합니다. 둘 다 실패하면 "잠시 후 다시 시도해 주세요" 안내로 끝납니다. 기본 테스트는 respx로만 검증하며, 실제 키로 두 공급자를 호출하는 확인은 `uv run pytest -m live`로 따로 돌립니다(아직 실제 키로 돌려 보지 않았습니다).
 - LOCALDATA(일반음식점 인허가) 응답의 필드명은 문서에 없어 추정으로 파싱합니다. 실제 키로 응답 형식을 확인해야 하며, 형식이 다르면 인허가상 영업·폐업 상태를 "알 수 없음"으로 처리합니다.
 - 예약과 결제는 계획 3에서 다룹니다.
