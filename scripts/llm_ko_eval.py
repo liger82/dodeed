@@ -1,10 +1,14 @@
 """한국어 품질 비교: 같은 사례를 1차(OpenAI)와 백업(Gemini) 모델에 보내고 결과를 표로 쓴다.
 
 실행:
-    uv run python scripts/llm_ko_eval.py --out docs/superpowers/eval/2026-11-ko-llm.md
+    dotenvx run -- uv run python scripts/llm_ko_eval.py \\
+        --out docs/superpowers/eval/2026-11-ko-llm.md
 
-키는 환경변수 `DODEED_OPENAI_API_KEY`, `DODEED_GEMINI_API_KEY`(모델 이름은 선택
-`DODEED_OPENAI_MODEL`, `DODEED_GEMINI_MODEL`)나 현재 폴더의 `.env`에서 읽는다.
+키와 모델 이름은 `dodeed.config.LLMKeys`로 환경변수나 현재 폴더의 `.env`에서 읽는다:
+`DODEED_OPENAI_API_KEY`(또는 `OPENAI_API_KEY`), `DODEED_GEMINI_API_KEY`(또는
+`GEMINI_API_KEY`), 선택 `DODEED_OPENAI_MODEL`, `DODEED_GEMINI_MODEL`. `DODEED_*`가 이긴다.
+`.env`가 dotenvx로 암호화돼 있으면 `dotenvx run -- uv run python scripts/llm_ko_eval.py ...`로
+실행한다.
 키가 있는 모델만 돌리고, 둘 다 없으면 안내를 출력하고 종료 코드 2로 끝난다.
 요청은 모두 GuardedLLM(출구 필터)을 거치며, 보고서와 콘솔에는 키를 쓰지 않는다.
 """
@@ -23,10 +27,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from pydantic import ValidationError, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import ValidationError
 
 from dodeed.agent.prompts import SYSTEM
+from dodeed.config import LLMKeys
 from dodeed.llm.gemini import GeminiClient
 from dodeed.llm.guarded import GuardedLLM
 from dodeed.llm.openai_chat import OpenAIChatClient
@@ -264,22 +268,6 @@ def render_report(cases: list[Case], models: list[ModelResult]) -> str:
 # --- 실행 ---
 
 
-class EvalSettings(BaseSettings):
-    """이 스크립트가 읽는 값만 둔다 (서버 설정 전체를 요구하지 않게)."""
-
-    model_config = SettingsConfigDict(env_prefix="DODEED_", env_file=".env", extra="ignore")
-
-    openai_api_key: str | None = None
-    gemini_api_key: str | None = None
-    openai_model: str = "gpt-6-luna"
-    gemini_model: str = "gemini-3.5-flash-lite"
-
-    @field_validator("openai_api_key", "gemini_api_key", mode="before")
-    @classmethod
-    def _empty_is_unset(cls, value: object) -> object:
-        return None if isinstance(value, str) and not value.strip() else value
-
-
 def _tool_def() -> ToolDef:
     return ToolDef(
         SEARCH_RESTAURANTS.name,
@@ -315,7 +303,7 @@ async def _run_model(
     return result
 
 
-async def _run(cfg: EvalSettings, cases: list[Case]) -> list[ModelResult]:
+async def _run(cfg: LLMKeys, cases: list[Case]) -> list[ModelResult]:
     registry = SecretRegistry(secrets.token_bytes(32))
     for key in (cfg.openai_api_key, cfg.gemini_api_key):
         if key:
@@ -336,8 +324,8 @@ async def _run(cfg: EvalSettings, cases: list[Case]) -> list[ModelResult]:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="한국어 사례로 1차(OpenAI)와 백업(Gemini) 모델의 도구 선택·인자·지연·비용을 "
-        "비교해 마크다운 보고서를 쓴다. 키: DODEED_OPENAI_API_KEY, DODEED_GEMINI_API_KEY "
-        "(환경변수 또는 .env).",
+        "비교해 마크다운 보고서를 쓴다. 키: DODEED_OPENAI_API_KEY(또는 OPENAI_API_KEY), "
+        "DODEED_GEMINI_API_KEY(또는 GEMINI_API_KEY) (환경변수 또는 .env).",
     )
     parser.add_argument("--out", required=True, type=Path, help="보고서(마크다운)를 쓸 경로")
     parser.add_argument(
@@ -354,13 +342,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"사례 파일을 읽을 수 없습니다: {exc}", file=sys.stderr)
         return 2
     try:
-        cfg = EvalSettings()
-    except ValidationError:
-        print("설정을 읽을 수 없습니다. DODEED_ 환경변수와 .env를 확인하세요.", file=sys.stderr)
+        cfg = LLMKeys()
+    except ValidationError as exc:
+        # include_input=False: 키 값은 출력하지 않고 원인 메시지만 보여 준다
+        reasons = "; ".join(e["msg"] for e in exc.errors(include_input=False))
+        print(
+            f"설정을 읽을 수 없습니다 ({reasons}). 환경변수와 .env를 확인하세요.", file=sys.stderr
+        )
         return 2
     if not cfg.openai_api_key and not cfg.gemini_api_key:
         print(
-            "API 키가 없습니다. DODEED_OPENAI_API_KEY 또는 DODEED_GEMINI_API_KEY를 "
+            "API 키가 없습니다. DODEED_OPENAI_API_KEY(OPENAI_API_KEY) 또는 "
+            "DODEED_GEMINI_API_KEY(GEMINI_API_KEY)를 "
             "환경변수나 .env에 넣은 뒤 다시 실행하세요.",
             file=sys.stderr,
         )

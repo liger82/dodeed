@@ -1,8 +1,10 @@
 """실제 API 키로 두 공급자를 부르는 점검 테스트.
 
 기본 실행(`uv run pytest`)에서는 `-m "not live"`로 빠진다. 실행: `uv run pytest -m live`.
-키(`DODEED_OPENAI_API_KEY`, `DODEED_GEMINI_API_KEY`)는 환경변수나 `.env`에서 읽고,
-없는 공급자의 테스트는 건너뛴다. 요청은 모두 GuardedLLM을 거친다.
+키는 `dodeed.config.LLMKeys`로 환경변수나 `.env`에서 읽는다 (`DODEED_OPENAI_API_KEY`
+또는 `OPENAI_API_KEY`, Gemini도 같음. `DODEED_*`가 이긴다). `.env`가 dotenvx로 암호화돼
+있으면 `dotenvx run -- uv run pytest -m live`로 실행한다. 없는 공급자의 테스트는 건너뛴다.
+요청은 모두 GuardedLLM을 거친다.
 """
 
 import json
@@ -11,10 +13,9 @@ import secrets
 
 import httpx
 import pytest
-from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from dodeed.agent.prompts import SYSTEM
+from dodeed.config import LLMKeys
 from dodeed.llm.gemini import GeminiClient
 from dodeed.llm.guarded import GuardedLLM
 from dodeed.llm.openai_chat import OpenAIChatClient
@@ -28,20 +29,6 @@ pytestmark = pytest.mark.live
 HANGUL = re.compile(r"[가-힣]")
 
 
-class LiveKeys(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="DODEED_", env_file=".env", extra="ignore")
-
-    openai_api_key: str | None = None
-    gemini_api_key: str | None = None
-    openai_model: str = "gpt-6-luna"
-    gemini_model: str = "gemini-3.5-flash-lite"
-
-    @field_validator("openai_api_key", "gemini_api_key", mode="before")
-    @classmethod
-    def _empty_is_unset(cls, value: object) -> object:
-        return None if isinstance(value, str) and not value.strip() else value
-
-
 @pytest.fixture(scope="session", autouse=True)
 def _migrate_test_db() -> None:
     """루트 conftest의 DB 마이그레이션을 덮어쓴다: live 테스트는 DB가 필요 없다."""
@@ -49,10 +36,10 @@ def _migrate_test_db() -> None:
 
 @pytest.fixture(params=["openai", "gemini"])
 async def llm(request):
-    keys = LiveKeys()
+    keys = LLMKeys()
     key = keys.openai_api_key if request.param == "openai" else keys.gemini_api_key
     if not key:
-        pytest.skip(f"DODEED_{request.param.upper()}_API_KEY가 없어 건너뜁니다")
+        pytest.skip(f"{request.param} API 키가 없어 건너뜁니다")
     registry = SecretRegistry(secrets.token_bytes(32))
     for k in (keys.openai_api_key, keys.gemini_api_key):
         if k:

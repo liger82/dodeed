@@ -172,3 +172,27 @@ def test_report_has_summary_and_no_key(tmp_path):
     assert "| OpenAI (gpt-6-luna) | 1/2 | 1/2 | 1 | 1000 | 10 | 2 |" in md
     assert "LLMProviderError" in md
     assert "사용량 정보가 없어" not in md  # 오류 난 호출은 사용량 누락으로 세지 않는다
+
+
+def test_script_uses_shared_llm_keys():
+    from dodeed.config import LLMKeys
+
+    assert ev.LLMKeys is LLMKeys
+    assert not hasattr(ev, "EvalSettings")
+
+
+def test_main_encrypted_key_message_without_value(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)  # 저장소의 .env를 읽지 않게
+    value = "encrypted:BDQEciphertext0123456789"
+    monkeypatch.setenv("DODEED_OPENAI_API_KEY", value)
+    assert ev.main(["--out", str(tmp_path / "r.md")]) == 2
+    err = capsys.readouterr().err
+    assert "dotenvx run --" in err
+    assert value not in err and "BDQE" not in err
+    assert not (tmp_path / "r.md").exists()
+
+
+def test_main_without_keys_exits_2(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert ev.main(["--out", str(tmp_path / "r.md")]) == 2
+    assert "OPENAI_API_KEY" in capsys.readouterr().err

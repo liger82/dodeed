@@ -26,6 +26,26 @@ def _migrate_test_db() -> None:
     command.upgrade(cfg, "head")
 
 
+LLM_KEY_ENV_VARS = (
+    "DODEED_OPENAI_API_KEY",
+    "DODEED_GEMINI_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_ambient_llm_keys(request, monkeypatch) -> None:
+    """셸에 있는 LLM 키(접두사 없는 OPENAI_API_KEY 등)가 기본 테스트에 섞이지 않게 한다.
+
+    live 테스트는 실제 키를 읽어야 하므로 그대로 둔다.
+    """
+    if request.node.get_closest_marker("live"):
+        return
+    for name in LLM_KEY_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def user_id() -> uuid.UUID:
     return uuid.uuid4()
