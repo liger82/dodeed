@@ -70,7 +70,8 @@ async def test_request_shape_has_store_false_and_tools(respx_mock, client):
         }
     ]
     assert "response_format" not in body
-    assert "reasoning_effort" not in body
+    # 도구가 있으면 gpt-6-luna 제약으로 추론을 끈다
+    assert body["reasoning_effort"] == "none"
 
 
 async def test_assistant_tool_call_and_tool_result_round_trip(respx_mock, client):
@@ -311,17 +312,31 @@ async def test_errors_do_not_contain_api_key(respx_mock, client):
         assert ei.value.__context__ is None or ei.value.__suppress_context__
 
 
-async def test_reasoning_effort_only_when_set(respx_mock, http):
-    route = respx_mock.post(BASE_URL).mock(return_value=_ok({"content": "ok"}))
-    plain = OpenAIChatClient(http, api_key=API_KEY, model="gpt-6-luna", timeout_s=60.0)
-    await plain.complete([Message(role="user", content="x")])
-    assert "reasoning_effort" not in _sent(route)
+_TOOL = ToolDef(name="search", description="검색", parameters={"type": "object"})
 
+
+async def test_reasoning_effort_none_with_tools_even_if_configured(respx_mock, http):
+    route = respx_mock.post(BASE_URL).mock(return_value=_ok({"content": "ok"}))
     tuned = OpenAIChatClient(
-        http, api_key=API_KEY, model="gpt-6-luna", timeout_s=60.0, reasoning_effort="low"
+        http, api_key=API_KEY, model="gpt-6-luna", timeout_s=60.0, reasoning_effort="high"
     )
-    await tuned.complete([Message(role="user", content="x")])
-    assert _sent(route)["reasoning_effort"] == "low"
+    await tuned.complete([Message(role="user", content="x")], tools=[_TOOL])
+    assert _sent(route)["reasoning_effort"] == "none"
+
+
+async def test_reasoning_effort_configured_without_tools(respx_mock, http):
+    route = respx_mock.post(BASE_URL).mock(return_value=_ok({"content": "ok"}))
+    tuned = OpenAIChatClient(
+        http, api_key=API_KEY, model="gpt-6-luna", timeout_s=60.0, reasoning_effort="high"
+    )
+    await tuned.complete([Message(role="user", content="x")], json_schema={"type": "object"})
+    assert _sent(route)["reasoning_effort"] == "high"
+
+
+async def test_reasoning_effort_absent_without_tools_when_unset(respx_mock, client):
+    route = respx_mock.post(BASE_URL).mock(return_value=_ok({"content": "ok"}))
+    await client.complete([Message(role="user", content="x")])
+    assert "reasoning_effort" not in _sent(route)
 
 
 async def test_last_usage_parsed_after_success(respx_mock, client):

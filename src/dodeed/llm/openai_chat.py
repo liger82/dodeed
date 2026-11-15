@@ -169,7 +169,10 @@ class OpenAIChatClient:
                 "type": "json_schema",
                 "json_schema": {"name": "output", "schema": json_schema, "strict": False},
             }
-        if self._reasoning_effort:
+        if tools:
+            # gpt-6-luna는 chat completions에서 도구와 추론을 함께 받지 않는다
+            body["reasoning_effort"] = "none"
+        elif self._reasoning_effort:
             body["reasoning_effort"] = self._reasoning_effort
         return body
 

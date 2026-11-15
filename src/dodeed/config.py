@@ -37,8 +37,8 @@ class LLMKeys(BaseSettings):
     )
     openai_model: str = "gpt-6-luna"
     gemini_model: str = "gemini-3.5-flash-lite"
-    # None이면 요청에 reasoning_effort를 넣지 않는다
-    openai_reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
+    # None이면 요청에 reasoning_effort를 넣지 않는다. 도구가 있는 요청은 이 값과 관계없이 "none"
+    openai_reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None = None
 
     @field_validator("openai_api_key", "gemini_api_key", mode="before")
     @classmethod

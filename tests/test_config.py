@@ -108,6 +108,7 @@ def test_model_names_default():
 
 def test_reasoning_effort_validated():
     assert _settings(openai_reasoning_effort="low").openai_reasoning_effort == "low"
+    assert _settings(openai_reasoning_effort="none").openai_reasoning_effort == "none"
     with pytest.raises(ValidationError):
         _settings(openai_reasoning_effort="extreme")
 

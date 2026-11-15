@@ -38,7 +38,7 @@ cp .env.example .env
 | `DODEED_OPENAI_MODEL` | 1차 모델 이름. 기본값 `gpt-6-luna` |
 | `DODEED_GEMINI_MODEL` | 백업 모델 이름. 기본값 `gemini-3.5-flash-lite` |
 | `DODEED_LLM_TIMEOUT_S` | LLM 요청 하나의 시간 제한(초). 기본값 `30`. 1차 모델이 이 시간을 넘기면 백업으로 전환합니다 |
-| `DODEED_OPENAI_REASONING_EFFORT` | OpenAI `reasoning_effort` (`minimal`, `low`, `medium`, `high`). 비워 두면 요청에 넣지 않습니다 |
+| `DODEED_OPENAI_REASONING_EFFORT` | OpenAI `reasoning_effort` (`none`, `minimal`, `low`, `medium`, `high`). 비워 두면 요청에 넣지 않습니다. 도구 호출이 있는 요청은 gpt-6-luna 제약으로 추론을 끄고(`reasoning_effort=none`), 리더(도구 없음)는 설정값을 따릅니다 |
 
 LLM 키는 `DODEED_OPENAI_API_KEY`와 `OPENAI_API_KEY`(Gemini는 `DODEED_GEMINI_API_KEY`와 `GEMINI_API_KEY`)를 모두 받고, 둘 다 있으면 `DODEED_*`가 이깁니다. 셸에 `OPENAI_API_KEY`나 `GEMINI_API_KEY`가 이미 있으면 `DODEED_*`를 넣지 않아도 `live`에서 그 키를 씁니다(다른 프로젝트용 키로 요금이 나갈 수 있으니 확인하세요). 셸 환경변수는 `.env`보다 우선합니다. 키 앞뒤 공백은 지우고, 빈 값은 없는 것으로 봅니다.
 
