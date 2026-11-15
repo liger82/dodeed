@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 
 import httpx
@@ -410,6 +411,24 @@ async def test_safety_block_returns_empty(respx_mock, client, reason):
     respx_mock.post(URL).mock(return_value=_ok([{"text": "부분 출력"}], finish_reason=reason))
     resp = await client.complete([Message(role="user", content="x")])
     assert resp == LLMResponse(text=None, tool_calls=[])
+
+
+@pytest.mark.parametrize("reason", ["MAX_TOKENS", "RECITATION", "OTHER"])
+async def test_unusual_finish_reason_logged_without_text(respx_mock, client, caplog, reason):
+    respx_mock.post(URL).mock(return_value=_ok([{"text": "부분 SECRET"}], finish_reason=reason))
+    with caplog.at_level(logging.WARNING, logger="dodeed.llm.gemini"):
+        await client.complete([Message(role="user", content="x")])
+    msgs = [r.getMessage() for r in caplog.records if r.name == "dodeed.llm.gemini"]
+    assert msgs == [f"gemini finish {reason}"]
+    assert "SECRET" not in caplog.text
+
+
+@pytest.mark.parametrize("reason", ["STOP", "SAFETY"])
+async def test_stop_and_blocked_finish_not_logged(respx_mock, client, caplog, reason):
+    respx_mock.post(URL).mock(return_value=_ok([{"text": "ok"}], finish_reason=reason))
+    with caplog.at_level(logging.WARNING, logger="dodeed.llm.gemini"):
+        await client.complete([Message(role="user", content="x")])
+    assert not [r for r in caplog.records if r.name == "dodeed.llm.gemini"]
 
 
 async def test_prompt_block_returns_empty(respx_mock, client):

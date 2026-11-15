@@ -102,7 +102,7 @@ def test_model_names_default():
     s = _settings()
     assert s.openai_model == "gpt-6-luna"
     assert s.gemini_model == "gemini-3.5-flash-lite"
-    assert s.llm_timeout_s == 60.0
+    assert s.llm_timeout_s == 30.0
     assert s.openai_reasoning_effort is None
 
 

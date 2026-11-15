@@ -158,8 +158,12 @@ def _parse_response(data: Any) -> LLMResponse:
     if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
         raise _bad_output()
     candidate = candidates[0]
-    if candidate.get("finishReason") in BLOCKED_FINISH_REASONS:
+    finish_reason = candidate.get("finishReason")
+    if finish_reason in BLOCKED_FINISH_REASONS:
         return LLMResponse(text=None, tool_calls=[])
+    if isinstance(finish_reason, str) and finish_reason != "STOP":
+        # MAX_TOKENS 등: 응답은 그대로 쓰되 종료 이유(열거형 문자열)만 남긴다
+        logger.warning("gemini finish %s", finish_reason)
 
     content = candidate.get("content")
     if not isinstance(content, dict):
@@ -213,7 +217,8 @@ class GeminiClient:
         self._api_key = api_key
         self._model = model
         self._timeout_s = timeout_s
-        # 마지막 성공 호출의 토큰 사용량 (품질 비교 스크립트용). 실패하거나 없으면 None
+        # 최근 호출 1건의 사용량. 동시에 여러 요청이 오면 신뢰할 수 없다 (평가 스크립트 전용).
+        # 실패하거나 없으면 None
         self.last_usage: dict[str, int] | None = None
 
     @property

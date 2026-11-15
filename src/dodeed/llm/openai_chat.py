@@ -73,8 +73,12 @@ def _parse_response(data: Any) -> LLMResponse:
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         raise _bad_output()
     choice = choices[0]
-    if choice.get("finish_reason") == "content_filter":
+    finish_reason = choice.get("finish_reason")
+    if finish_reason == "content_filter":
         return LLMResponse(text=None, tool_calls=[])
+    if finish_reason == "length":
+        # 출력 한도로 잘렸다: 응답은 그대로 쓰되 종료 이유만 남긴다 (본문은 남기지 않는다)
+        logger.warning("openai finish length")
     message = choice.get("message")
     if not isinstance(message, dict):
         raise _bad_output()
@@ -143,7 +147,8 @@ class OpenAIChatClient:
         self._model = model
         self._timeout_s = timeout_s
         self._reasoning_effort = reasoning_effort
-        # 마지막 성공 호출의 토큰 사용량 (품질 비교 스크립트용). 실패하거나 없으면 None
+        # 최근 호출 1건의 사용량. 동시에 여러 요청이 오면 신뢰할 수 없다 (평가 스크립트 전용).
+        # 실패하거나 없으면 None
         self.last_usage: dict[str, int] | None = None
 
     def _build_body(

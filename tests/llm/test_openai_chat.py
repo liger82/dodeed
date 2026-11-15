@@ -1,4 +1,5 @@
 import json
+import logging
 
 import httpx
 import pytest
@@ -182,6 +183,25 @@ async def test_invalid_tool_arguments_raise_provider_error(respx_mock, client, a
         await client.complete([Message(role="user", content="x")])
     assert ei.value.kind == "bad_output"
     assert ei.value.provider == "openai"
+
+
+async def test_length_finish_logged_without_text(respx_mock, client, caplog):
+    respx_mock.post(BASE_URL).mock(
+        return_value=_ok({"content": "잘린 출력 SECRET"}, finish_reason="length")
+    )
+    with caplog.at_level(logging.WARNING, logger="dodeed.llm.openai_chat"):
+        resp = await client.complete([Message(role="user", content="x")])
+    assert resp.text == "잘린 출력 SECRET"
+    msgs = [r.getMessage() for r in caplog.records if r.name == "dodeed.llm.openai_chat"]
+    assert msgs == ["openai finish length"]
+    assert "SECRET" not in caplog.text
+
+
+async def test_stop_finish_not_logged(respx_mock, client, caplog):
+    respx_mock.post(BASE_URL).mock(return_value=_ok({"content": "ok"}))
+    with caplog.at_level(logging.WARNING, logger="dodeed.llm.openai_chat"):
+        await client.complete([Message(role="user", content="x")])
+    assert not [r for r in caplog.records if r.name == "dodeed.llm.openai_chat"]
 
 
 async def test_content_filter_returns_empty(respx_mock, client):

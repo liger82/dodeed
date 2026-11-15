@@ -31,6 +31,8 @@ from dodeed.sources.localdata import LocalData
 from dodeed.sources.naver_search import NaverSearch
 from dodeed.sources.public_page import PublicPageReader
 
+logger = logging.getLogger(__name__)
+
 
 def _quiet_http_logs() -> None:
     # httpx는 INFO 로그에 요청 URL(쿼리의 API 키 포함)을 남긴다
@@ -58,6 +60,14 @@ def _make_llm(settings: Settings, http: httpx.AsyncClient) -> LLMClient:
             api_key=settings.gemini_api_key,
             model=settings.gemini_model,
             timeout_s=settings.llm_timeout_s,
+        )
+        # 키는 남기지 않는다: 공급자와 모델 이름만
+        logger.info(
+            "llm live: primary=%s(%s) backup=%s(%s)",
+            "openai",
+            settings.openai_model,
+            "gemini",
+            settings.gemini_model,
         )
         return FallbackLLM(primary, backup, "openai", "gemini")
     raise ValueError(f"알 수 없는 LLM 설정: {settings.llm}")  # pragma: no cover

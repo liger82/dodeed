@@ -56,6 +56,28 @@ def test_make_llm_live_builds_fallback(settings):
     assert llm.primary._http is http and llm.backup._http is http
     assert llm.primary._model == "gpt-6-luna"
     assert llm.backup._model == "gemini-3.5-flash-lite"
+    assert llm.primary._timeout_s == 30.0
+
+
+def test_make_llm_live_logs_models_without_keys(settings, caplog):
+    live = settings.model_copy(
+        update={
+            "llm": "live",
+            "openai_api_key": "sk-test-1234567890",
+            "gemini_api_key": "AIza-test-1234567890",
+        }
+    )
+    with caplog.at_level(logging.INFO, logger="dodeed.app"):
+        _make_llm(live, httpx.AsyncClient())
+    lines = [r.getMessage() for r in caplog.records if r.name == "dodeed.app"]
+    assert lines == ["llm live: primary=openai(gpt-6-luna) backup=gemini(gemini-3.5-flash-lite)"]
+    assert "sk-test" not in caplog.text and "AIza-test" not in caplog.text
+
+
+def test_make_llm_fake_logs_nothing(settings, caplog):
+    with caplog.at_level(logging.INFO, logger="dodeed.app"):
+        _make_llm(settings, httpx.AsyncClient())
+    assert not [r for r in caplog.records if r.name == "dodeed.app"]
 
 
 async def test_default_wiring_answers_with_static_llm(client, signed_up_user_id):

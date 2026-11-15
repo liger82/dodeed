@@ -75,7 +75,7 @@ class Settings(LLMKeys):
     # fake는 고정 응답 LLM(StaticLLM), live는 1차 OpenAI + 백업 Gemini.
     # LLM 설정은 모두 기본값이 있다. live일 때만 두 API 키가 필요하다.
     llm: Literal["fake", "live"] = "fake"
-    llm_timeout_s: float = 60.0
+    llm_timeout_s: float = 30.0
 
     @model_validator(mode="after")
     def _live_needs_both_keys(self) -> Self:
