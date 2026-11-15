@@ -1,0 +1,17 @@
+[
+  {"kind": "sponsored", "text": "본 포스팅은 업체로부터 소정의 원고료를 받아 작성되었습니다. 국밥 국물이 진하고 깔끔했어요.", "link": "https://blog.naver.com/s1/223000000101", "posted": "2026-10-20", "is_receipt_verified": false},
+  {"kind": "sponsored", "text": "식사를 제공받아 솔직하게 작성한 후기입니다. 수육이 정말 부드러웠어요!", "link": "https://blog.naver.com/s2/223000000102", "posted": "2026-10-18", "is_receipt_verified": false},
+  {"kind": "sponsored", "text": "체험단으로 방문했어요. 화장실은 매장 안에 있고 남녀 분리되어 있어요.", "link": "https://blog.naver.com/s3/223000000103", "posted": "2026-10-15", "is_receipt_verified": false},
+  {"kind": "sponsored", "text": "[협찬] 강남역 혼밥하기 좋은 1인석 국밥집. 반찬도 정갈해요.", "link": "https://blog.naver.com/s4/223000000104", "posted": "2026-10-12", "is_receipt_verified": false},
+  {"kind": "sponsored", "text": "내돈내산처럼 보이지만 사실 원고료를 받고 쓴 글입니다. 맛은 최고였어요.", "link": "https://blog.naver.com/s5/223000000105", "posted": "2026-10-10", "is_receipt_verified": true},
+  {"kind": "own_money", "text": "내돈내산 후기! 퇴근길에 혼자 들렀는데 국물이 진하고 김치가 맛있었어요.", "link": "https://blog.naver.com/o1/223000000201", "posted": "2026-10-25", "is_receipt_verified": false},
+  {"kind": "own_money", "text": "내 돈 내 산으로 두 번째 방문. 순대국 양이 많고 잡내가 없어요.", "link": "https://blog.naver.com/o2/223000000202", "posted": "2026-10-22", "is_receipt_verified": false},
+  {"kind": "own_money", "text": "직접 결제하고 먹었습니다. 점심에는 웨이팅이 조금 있지만 회전이 빨라요.", "link": "https://blog.naver.com/o3/223000000203", "posted": "2026-10-05", "is_receipt_verified": false},
+  {"kind": "own_money", "text": "깍두기가 시원하고 국밥이 뜨끈해서 좋았어요. 또 갈게요.", "link": "https://m.place.naver.com/restaurant/1001/review/r1", "posted": "2026-09-30", "is_receipt_verified": true},
+  {"kind": "unknown", "text": "강남역 근처 국밥집 다녀왔어요. 가게가 깔끔합니다.", "link": "https://blog.naver.com/u1/223000000301", "posted": "2026-10-21", "is_receipt_verified": false},
+  {"kind": "unknown", "text": "친구랑 저녁 먹으러 갔어요. 수육 세트 추천합니다.", "link": "https://blog.naver.com/u2/223000000302", "posted": "2026-10-19", "is_receipt_verified": false},
+  {"kind": "unknown", "text": "화장실은 건물 공용이라 조금 불편했어요.", "link": "https://blog.naver.com/u3/223000000303", "posted": "2026-10-17", "is_receipt_verified": false},
+  {"kind": "unknown", "text": "주차는 안 되니 대중교통 이용하세요. 맛은 평범했어요.", "link": "https://blog.naver.com/u4/223000000304", "posted": "2026-09-28", "is_receipt_verified": false},
+  {"kind": "unknown", "text": "가격이 조금 올랐지만 여전히 맛있는 집이에요.", "link": "https://blog.naver.com/u5/223000000305", "posted": null, "is_receipt_verified": false},
+  {"kind": "unknown", "text": "회식 2차로 들렀는데 분위기가 시끌벅적해요.", "link": "https://blog.naver.com/u6/223000000306", "posted": "2026-08-14", "is_receipt_verified": false}
+]

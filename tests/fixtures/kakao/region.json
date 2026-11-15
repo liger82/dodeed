@@ -1,0 +1,3 @@
+{"meta":{"total_count":2},"documents":[
+{"region_type":"B","address_name":"서울특별시 강남구 역삼동","region_1depth_name":"서울특별시","region_2depth_name":"강남구","region_3depth_name":"역삼동","region_4depth_name":"","code":"1168010100","x":127.03,"y":37.50},
+{"region_type":"H","address_name":"서울특별시 강남구 역삼1동","region_1depth_name":"서울특별시","region_2depth_name":"강남구","region_3depth_name":"역삼1동","region_4depth_name":"","code":"1168065000","x":127.03,"y":37.50}]}
