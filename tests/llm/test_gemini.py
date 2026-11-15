@@ -279,6 +279,63 @@ async def test_unknown_tool_call_id_raises_request_error(respx_mock, client):
     assert not route.called
 
 
+def _assert_no_empty(body: dict) -> None:
+    for content in body["contents"]:
+        assert content["parts"], content
+        assert {"text": ""} not in content["parts"]
+
+
+async def test_empty_texts_dropped_from_history(respx_mock, client):
+    route = respx_mock.post(URL).mock(return_value=_ok([{"text": "ok"}]))
+    messages = [
+        Message(role="user", content="점심"),
+        Message(role="assistant", content=""),
+        Message(role="user", content=""),
+        Message(role="assistant", content="어디세요?"),
+        Message(role="user", content="강남"),
+    ]
+    await client.complete(messages)
+
+    body = _sent(route)
+    _assert_no_empty(body)
+    assert body["contents"] == [
+        {"role": "user", "parts": [{"text": "점심"}]},
+        {"role": "model", "parts": [{"text": "어디세요?"}]},
+        {"role": "user", "parts": [{"text": "강남"}]},
+    ]
+
+
+async def test_final_empty_user_message_still_valid_body(respx_mock, client):
+    route = respx_mock.post(URL).mock(return_value=_ok([{"text": "ok"}]))
+    messages = [
+        Message(role="system", content="규칙"),
+        Message(role="user", content="점심"),
+        Message(role="assistant", content="어디세요?"),
+        Message(role="user", content=""),
+    ]
+    await client.complete(messages)
+
+    body = _sent(route)
+    _assert_no_empty(body)
+    assert body["contents"] == [
+        {"role": "user", "parts": [{"text": "점심"}]},
+        {"role": "model", "parts": [{"text": "어디세요?"}]},
+    ]
+
+
+async def test_all_empty_contents_raise_request_error(respx_mock, client):
+    route = respx_mock.post(URL).mock(return_value=_ok([{"text": "ok"}]))
+    messages = [
+        Message(role="system", content="규칙"),
+        Message(role="user", content=""),
+        Message(role="assistant", content=""),
+    ]
+    with pytest.raises(LLMRequestError) as ei:
+        await client.complete(messages)
+    assert (ei.value.provider, ei.value.status) == ("gemini", 400)
+    assert not route.called
+
+
 async def test_function_call_parsed_with_generated_id(respx_mock, client):
     respx_mock.post(URL).mock(
         return_value=_ok(

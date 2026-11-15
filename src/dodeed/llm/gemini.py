@@ -74,7 +74,11 @@ def _tool_response(content: str) -> dict:
 
 
 def _to_contents(messages: list[Message]) -> tuple[list[str], list[dict[str, Any]]]:
-    """(system 텍스트들, contents). 순서를 지키고 연속된 같은 role은 하나로 합친다."""
+    """(system 텍스트들, contents). 순서를 지키고 연속된 같은 role은 하나로 합친다.
+
+    빈 텍스트(`""`)는 파트로 보내지 않고, 파트가 없는 content도 뺀다. 보낼 content가
+    하나도 없으면 요청 전에 LLMRequestError(400)를 낸다.
+    """
     system: list[str] = []
     contents: list[dict[str, Any]] = []
     calls_by_id: dict[str, ToolCall] = {}
@@ -100,12 +104,17 @@ def _to_contents(messages: list[Message]) -> tuple[list[str], list[dict[str, Any
             calls_by_id.update({tc.id: tc for tc in m.tool_calls})
         else:
             role = "model" if m.role == "assistant" else "user"
-            parts = [{"text": m.content}]
+            parts = [{"text": m.content}] if m.content else []
 
+        if not parts:  # 빈 텍스트 파트나 파트 없는 content는 보내지 않는다
+            continue
         if contents and contents[-1]["role"] == role:
             contents[-1]["parts"].extend(parts)
         else:
             contents.append({"role": role, "parts": parts})
+    if not contents:
+        logger.warning("gemini request rejected: empty contents")
+        raise LLMRequestError(PROVIDER, 400)
     return system, contents
 
 
